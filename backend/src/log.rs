@@ -2,8 +2,6 @@ use std::str::FromStr;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, Registry, fmt::Layer, prelude::*};
 
-/// Installs the global subscriber. The returned guard flushes buffered logs on
-/// drop, so callers must keep it alive for the lifetime of the process.
 pub fn init(level: &str, pretty: bool) -> WorkerGuard {
     let (non_blocking_io, guard) = tracing_appender::non_blocking(std::io::stdout());
 

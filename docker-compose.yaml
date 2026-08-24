@@ -14,8 +14,6 @@ services:
       retries: 5
 
   backend:
-    # Published images by default, so a first run is a pull rather than a
-    # twenty minute compile. Use docker-compose.dev.yaml to build from source.
     image: ghcr.io/cogitatortech/duck-watch-backend:${DUCKWATCH_VERSION:-latest}
     environment:
       PORT: 8080
@@ -23,9 +21,6 @@ services:
       LOG_PRETTY: "false"
       CORS_ORIGINS: "*"
       DATABASE_URL: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
-      # Read from the .env file beside this one, which `make setup` creates
-      # with a freshly generated key. There is deliberately no default: a
-      # shared key would let any installation decrypt another's tokens.
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
       INGEST_POLL_INTERVAL_SECONDS: 60
       INGEST_OVERLAP_MINUTES: 15

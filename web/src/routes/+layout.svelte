@@ -52,11 +52,6 @@
 					<a href={resolve('/connections')} class="text-muted hover:text-accent-strong">
 						Connections
 					</a>
-					{#if getUser()?.is_superadmin}
-						<a href={resolve('/admin')} class="text-muted hover:text-accent-strong"
-							>Admin</a
-						>
-					{/if}
 					<span class="hidden text-faint sm:inline">{getUser()?.email}</span>
 					<button class="text-muted hover:text-accent-strong" onclick={signOut}
 						>Sign out</button

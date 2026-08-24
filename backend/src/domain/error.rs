@@ -10,8 +10,6 @@ pub enum Error {
     Validation(anyhow::Error),
     #[error("unauthorized")]
     Unauthorized,
-    #[error("forbidden")]
-    Forbidden,
     #[error(transparent)]
     External(#[from] anyhow::Error),
 }
@@ -32,11 +30,6 @@ impl Error {
     /// a caller cannot tell which of those it was.
     pub fn unauthorized() -> Self {
         Error::Unauthorized
-    }
-
-    /// A valid credential without the required privilege.
-    pub fn forbidden() -> Self {
-        Error::Forbidden
     }
 
     /// An unexpected failure is worth a stack trace; an expected one is not.

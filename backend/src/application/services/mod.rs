@@ -1,7 +1,5 @@
-pub mod admin;
 pub mod motherduck;
 pub mod motherduck_connections;
-pub mod organizations;
 pub mod password;
 pub mod query_events;
 pub mod query_shapes;

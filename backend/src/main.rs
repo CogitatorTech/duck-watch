@@ -12,7 +12,7 @@ mod log;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // A missing .env file is fine; the environment may already hold the settings.
+    // A missing .env file is fine; the environment may already have the settings.
     dotenv().ok();
 
     let config = config::Config::from_env().context("failed to read configuration")?;

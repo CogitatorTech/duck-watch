@@ -677,15 +677,11 @@ mod integration_tests {
 
     use super::*;
     use crate::application::services::motherduck_connections::MotherDuckConnectionService;
-    use crate::application::services::organizations::OrganizationService;
     use crate::domain::entities::motherduck_connections::ConnectionDraft;
-    use crate::domain::entities::organizations::OrganizationDraft;
     use crate::domain::entities::pricing::RegionTier;
     use crate::domain::entities::query_events::{AttributionKey, QueryEventDraft, TimeWindow};
-    use crate::domain::entities::users::{Email, PasswordHash, User};
     use crate::infrastructure::crypto::SecretCipher;
     use crate::infrastructure::pg::motherduck_connections::PgMotherDuckConnectionService;
-    use crate::infrastructure::pg::organizations::PgOrganizationService;
 
     /// The range a preset window covers, ending now.
     fn range(window: TimeWindow) -> TimeRange {
@@ -708,20 +704,10 @@ mod integration_tests {
     }
 
     async fn seed_connection(pool: &Pool<Postgres>) -> Uuid {
-        let now = Utc::now();
-        let organization = OrganizationDraft::new("acme")
-            .unwrap()
-            .into_new_organization(now);
-        let user = User::new(organization.id, Email::new("a@example.com").unwrap(), now);
-        PgOrganizationService::new(pool.clone())
-            .create_with_owner(organization.clone(), user, PasswordHash::new("h".into()))
-            .await
-            .unwrap();
-
         let cipher = Arc::new(SecretCipher::from_base64_key(&STANDARD.encode([9u8; 32])).unwrap());
         let (connection, token) = ConnectionDraft::new("prod", "tok", RegionTier::Tier1)
             .unwrap()
-            .into_new_connection(organization.id, now);
+            .into_new_connection(Utc::now());
         PgMotherDuckConnectionService::new(pool.clone(), cipher)
             .insert(connection, token)
             .await

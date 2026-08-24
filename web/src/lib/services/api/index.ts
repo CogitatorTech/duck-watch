@@ -59,7 +59,6 @@ export const withJson = (options: RequestInit | undefined, data?: unknown): Requ
 	body: JSON.stringify(data),
 });
 
-export * from './admin';
 export * from './auth';
 export * from './connections';
 export * from './dashboard';

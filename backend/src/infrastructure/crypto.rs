@@ -32,8 +32,10 @@ impl SecretCipher {
                 bytes.len()
             )));
         }
+        let key = Key::<Aes256Gcm>::try_from(bytes.as_slice())
+            .map_err(|_| Error::External(anyhow::anyhow!("encryption key is the wrong size")))?;
         Ok(Self {
-            cipher: Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&bytes)),
+            cipher: Aes256Gcm::new(&key),
         })
     }
 
@@ -41,10 +43,10 @@ impl SecretCipher {
     /// gets stored.
     pub fn encrypt(&self, plaintext: &str) -> Result<(Vec<u8>, Vec<u8>)> {
         let nonce_bytes: [u8; NONCE_LEN] = rand::random();
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::from(nonce_bytes);
         let ciphertext = self
             .cipher
-            .encrypt(nonce, plaintext.as_bytes())
+            .encrypt(&nonce, plaintext.as_bytes())
             .map_err(|_| Error::External(anyhow::anyhow!("secret encryption failed")))?;
         Ok((ciphertext, nonce_bytes.to_vec()))
     }
@@ -53,9 +55,11 @@ impl SecretCipher {
         if nonce.len() != NONCE_LEN {
             return Err(Error::External(anyhow::anyhow!("stored nonce is invalid")));
         }
+        let nonce = Nonce::try_from(nonce)
+            .map_err(|_| Error::External(anyhow::anyhow!("stored nonce is invalid")))?;
         let plaintext = self
             .cipher
-            .decrypt(Nonce::from_slice(nonce), ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|_| Error::External(anyhow::anyhow!("secret decryption failed")))?;
         String::from_utf8(plaintext)
             .map_err(|_| Error::External(anyhow::anyhow!("decrypted secret is not utf-8")))

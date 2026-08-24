@@ -21,14 +21,14 @@ pub struct SyncState {
 /// through `get_token`, decrypted on the way out.
 #[async_trait]
 pub trait MotherDuckConnectionService: Send + Sync {
-    async fn find_all_by_org(&self, org_id: Uuid) -> Result<Vec<MotherDuckConnection>>;
-    async fn find_by_id_and_org(&self, id: Uuid, org_id: Uuid) -> Result<MotherDuckConnection>;
+    async fn find_all(&self) -> Result<Vec<MotherDuckConnection>>;
+    async fn find_by_id(&self, id: Uuid) -> Result<MotherDuckConnection>;
     async fn insert(
         &self,
         connection: MotherDuckConnection,
         token: MotherDuckToken,
     ) -> Result<MotherDuckConnection>;
-    async fn delete(&self, id: Uuid, org_id: Uuid) -> Result<()>;
+    async fn delete(&self, id: Uuid) -> Result<()>;
     async fn find_enabled(&self) -> Result<Vec<MotherDuckConnection>>;
     async fn get_token(&self, id: Uuid) -> Result<MotherDuckToken>;
     async fn update_sync_state(&self, id: Uuid, state: SyncState) -> Result<()>;
@@ -39,14 +39,14 @@ mockall::mock! {
     pub MotherDuckConnectionService {}
     #[async_trait]
     impl MotherDuckConnectionService for MotherDuckConnectionService {
-        async fn find_all_by_org(&self, org_id: Uuid) -> Result<Vec<MotherDuckConnection>>;
-        async fn find_by_id_and_org(&self, id: Uuid, org_id: Uuid) -> Result<MotherDuckConnection>;
+        async fn find_all(&self) -> Result<Vec<MotherDuckConnection>>;
+        async fn find_by_id(&self, id: Uuid) -> Result<MotherDuckConnection>;
         async fn insert(
             &self,
             connection: MotherDuckConnection,
             token: MotherDuckToken,
         ) -> Result<MotherDuckConnection>;
-        async fn delete(&self, id: Uuid, org_id: Uuid) -> Result<()>;
+        async fn delete(&self, id: Uuid) -> Result<()>;
         async fn find_enabled(&self) -> Result<Vec<MotherDuckConnection>>;
         async fn get_token(&self, id: Uuid) -> Result<MotherDuckToken>;
         async fn update_sync_state(&self, id: Uuid, state: SyncState) -> Result<()>;

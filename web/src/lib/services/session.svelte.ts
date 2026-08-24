@@ -2,9 +2,7 @@ import { browser } from '$app/environment';
 
 export type SessionUser = {
 	id: string;
-	org_id: string;
 	email: string;
-	is_superadmin: boolean;
 };
 
 const TOKEN_KEY = 'duckwatch_token';

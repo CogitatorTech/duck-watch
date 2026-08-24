@@ -64,24 +64,18 @@ impl std::fmt::Debug for PasswordHash {
 #[cfg_attr(test, derive(serde::Deserialize))]
 pub struct User {
     pub id: Uuid,
-    pub org_id: Uuid,
     pub email: Email,
-    /// Platform operator flag. No signup or API path sets it; an operator is
-    /// promoted directly in the database.
-    pub is_superadmin: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl User {
-    /// Builds a new regular user for an organization, stamping the identifier
-    /// and timestamps.
-    pub fn new(org_id: Uuid, email: Email, now: DateTime<Utc>) -> Self {
+    /// Builds the account, stamping the identifier and timestamps. DuckWatch
+    /// is a single account tool, so there is only ever one of these.
+    pub fn new(email: Email, now: DateTime<Utc>) -> Self {
         Self {
             id: Uuid::new_v4(),
-            org_id,
             email,
-            is_superadmin: false,
             created_at: now,
             updated_at: now,
         }
@@ -151,7 +145,7 @@ mod tests {
     #[test]
     fn user_new_stamps_matching_timestamps() {
         let now = Utc::now();
-        let user = User::new(Uuid::new_v4(), Email::new("a@b.co").unwrap(), now);
+        let user = User::new(Email::new("a@b.co").unwrap(), now);
         assert_eq!(user.created_at, user.updated_at);
         assert!(!user.id.is_nil());
     }

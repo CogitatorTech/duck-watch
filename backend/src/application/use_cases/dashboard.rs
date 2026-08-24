@@ -140,17 +140,15 @@ impl DashboardUseCase {
         }
     }
 
-    /// Every read first proves the connection belongs to the caller's
-    /// organization; a foreign id reports as not found. The connection comes
-    /// back because its region tier prices the results.
+    /// Every read first resolves the connection, so an unknown id reports as
+    /// not found rather than reading nothing. The connection comes back
+    /// because its region tier prices the results.
     async fn authorize(
         &self,
-        context: AuthContext,
+        _context: AuthContext,
         connection_id: Uuid,
     ) -> Result<MotherDuckConnection> {
-        self.connection_service
-            .find_by_id_and_org(connection_id, context.org_id)
-            .await
+        self.connection_service.find_by_id(connection_id).await
     }
 
     async fn list(
@@ -640,8 +638,6 @@ mod tests {
     fn context() -> AuthContext {
         AuthContext {
             user_id: Uuid::new_v4(),
-            org_id: Uuid::new_v4(),
-            is_superadmin: false,
         }
     }
 
@@ -658,12 +654,12 @@ mod tests {
         }
     }
 
-    fn allowing_connection_service(org_id: Uuid) -> MockMotherDuckConnectionService {
+    fn allowing_connection_service() -> MockMotherDuckConnectionService {
         let mut service = MockMotherDuckConnectionService::new();
-        service.expect_find_by_id_and_org().returning(move |id, _| {
+        service.expect_find_by_id().returning(move |id| {
             let (mut connection, _) = ConnectionDraft::new("prod", "tok", RegionTier::Tier1)
                 .unwrap()
-                .into_new_connection(org_id, Utc::now());
+                .into_new_connection(Utc::now());
             connection.id = id;
             Ok(connection)
         });
@@ -695,11 +691,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reads_reject_a_foreign_connection() {
+    async fn reads_reject_an_unknown_connection() {
         let mut connection_service = MockMotherDuckConnectionService::new();
         connection_service
-            .expect_find_by_id_and_org()
-            .return_once(|_, _| Err(Error::not_found()));
+            .expect_find_by_id()
+            .return_once(|_| Err(Error::not_found()));
         let mut query_events = MockQueryEventService::new();
         query_events.expect_summary().never();
 
@@ -734,7 +730,7 @@ mod tests {
             .return_once(move |id, _| Ok(vec![long_event(id)]));
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -765,7 +761,7 @@ mod tests {
         });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -811,7 +807,7 @@ mod tests {
         });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -867,7 +863,7 @@ mod tests {
         });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -904,7 +900,7 @@ mod tests {
         });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -942,7 +938,7 @@ mod tests {
         });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -981,7 +977,7 @@ mod tests {
             });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(MockQueryEventService::new()),
             Box::new(MockStorageSampleService::new()),
             Box::new(shapes),
@@ -997,11 +993,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_full_statement_rejects_a_foreign_connection() {
+    async fn the_full_statement_rejects_an_unknown_connection() {
         let mut connection_service = MockMotherDuckConnectionService::new();
         connection_service
-            .expect_find_by_id_and_org()
-            .return_once(|_, _| Err(Error::not_found()));
+            .expect_find_by_id()
+            .return_once(|_| Err(Error::not_found()));
         let mut shapes = MockQueryShapeService::new();
         shapes.expect_find_statement().never();
 
@@ -1021,11 +1017,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn insights_reject_a_foreign_connection() {
+    async fn insights_reject_an_unknown_connection() {
         let mut connection_service = MockMotherDuckConnectionService::new();
         connection_service
-            .expect_find_by_id_and_org()
-            .return_once(|_, _| Err(Error::not_found()));
+            .expect_find_by_id()
+            .return_once(|_| Err(Error::not_found()));
         let mut query_events = MockQueryEventService::new();
         query_events.expect_shape_cells().never();
 
@@ -1074,7 +1070,7 @@ mod tests {
             });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(MockQueryEventService::new()),
             Box::new(storage),
             Box::new(MockQueryShapeService::new()),
@@ -1117,7 +1113,7 @@ mod tests {
             });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -1175,7 +1171,7 @@ mod tests {
             });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -1207,7 +1203,7 @@ mod tests {
             .returning(|_, _, _| Ok(vec![]));
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -1250,7 +1246,7 @@ mod tests {
         });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -1286,7 +1282,7 @@ mod tests {
             });
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -1324,7 +1320,7 @@ mod tests {
             .return_once(|_, _| Ok(vec![]));
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),
@@ -1367,7 +1363,7 @@ mod tests {
             .return_once(|_, _| Ok(vec![]));
 
         let use_case = DashboardUseCase::new(
-            Box::new(allowing_connection_service(context.org_id)),
+            Box::new(allowing_connection_service()),
             Box::new(query_events),
             Box::new(MockStorageSampleService::new()),
             Box::new(MockQueryShapeService::new()),

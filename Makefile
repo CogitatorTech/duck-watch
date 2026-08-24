@@ -135,8 +135,9 @@ start-dev: setup ## Run DuckWatch, building both images from this working tree
 	@$(COMPOSE) -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
 	@echo ""
 	@echo "DuckWatch is starting on http://localhost:3000"
-	@echo "Building the backend takes about twenty minutes the first time: the"
-	@echo "duckdb crate compiles libduckdb from C++. Follow it with 'make logs'."
+	@echo "A first build takes about twenty minutes, because the duckdb crate"
+	@echo "compiles libduckdb from C++. Later builds reuse that and are quick."
+	@echo "Follow it with 'make logs'."
 
 .PHONY: stop
 stop: ## Stop DuckWatch, keeping its data
@@ -175,22 +176,6 @@ db-migrate: ## Apply the pending migrations (needs sqlx-cli)
 db-revert: ## Revert the most recent migration (needs sqlx-cli)
 	@echo "Reverting the last migration..."
 	@cd $(BACKEND_DIR) && sqlx migrate revert
-
-.PHONY: promote-admin
-promote-admin: ## Make a user a platform superadmin, e.g. make promote-admin EMAIL=you@example.com
-	@test -n "$(EMAIL)" || { echo "Usage: make promote-admin EMAIL=you@example.com"; exit 1; }
-	@$(COMPOSE) exec -T db psql -U postgres -v ON_ERROR_STOP=1 -c \
-	   "update users set is_superadmin = true where email = lower('$(EMAIL)');" | \
-	   grep -q "UPDATE 1" && echo "Promoted $(EMAIL). Sign in again to pick up the flag." || \
-	   { echo "No user with email $(EMAIL)."; exit 1; }
-
-.PHONY: demote-admin
-demote-admin: ## Take the platform superadmin flag away from a user
-	@test -n "$(EMAIL)" || { echo "Usage: make demote-admin EMAIL=you@example.com"; exit 1; }
-	@$(COMPOSE) exec -T db psql -U postgres -v ON_ERROR_STOP=1 -c \
-	   "update users set is_superadmin = false where email = lower('$(EMAIL)');" | \
-	   grep -q "UPDATE 1" && echo "Demoted $(EMAIL)." || \
-	   { echo "No user with email $(EMAIL)."; exit 1; }
 
 ##@ Project
 

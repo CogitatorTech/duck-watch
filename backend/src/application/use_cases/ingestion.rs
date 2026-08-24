@@ -420,7 +420,7 @@ mod tests {
     fn connection(watermark: Option<DateTime<Utc>>) -> MotherDuckConnection {
         let (mut connection, _) = ConnectionDraft::new("prod", "tok", RegionTier::Tier1)
             .unwrap()
-            .into_new_connection(Uuid::new_v4(), Utc::now());
+            .into_new_connection(Utc::now());
         connection.watermark_start_time = watermark;
         connection
     }

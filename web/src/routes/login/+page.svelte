@@ -52,7 +52,8 @@
 	{/if}
 
 	<p class="mt-6 text-sm text-muted">
-		No account yet?
-		<a href={resolve('/signup')} class="text-accent-strong hover:underline">Create one</a>
+		Setting up a new DuckWatch?
+		<a href={resolve('/setup')} class="text-accent-strong hover:underline">Create the account</a
+		>
 	</p>
 </div>

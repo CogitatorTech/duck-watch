@@ -19,7 +19,6 @@ use crate::infrastructure::crypto::SecretCipher;
 #[derive(sqlx::FromRow)]
 struct ConnectionRow {
     id: Uuid,
-    org_id: Uuid,
     name: String,
     region_tier: String,
     enabled: bool,
@@ -35,7 +34,6 @@ impl From<ConnectionRow> for MotherDuckConnection {
     fn from(row: ConnectionRow) -> Self {
         MotherDuckConnection {
             id: row.id,
-            org_id: row.org_id,
             name: row.name,
             // A tier written by an older release, or by hand, falls back to
             // the default rather than failing the read.
@@ -70,30 +68,27 @@ impl PgMotherDuckConnectionService {
 
 #[async_trait]
 impl MotherDuckConnectionService for PgMotherDuckConnectionService {
-    async fn find_all_by_org(&self, org_id: Uuid) -> Result<Vec<MotherDuckConnection>> {
+    async fn find_all(&self) -> Result<Vec<MotherDuckConnection>> {
         let rows = sqlx::query_as::<_, ConnectionRow>(
-            "select id, org_id, name, region_tier, enabled, watermark_start_time, last_synced_at,
+            "select id, name, region_tier, enabled, watermark_start_time, last_synced_at,
                     last_success_at, last_sync_error, created_at, updated_at
              from motherduck_connections
-             where org_id = $1
              order by created_at desc",
         )
-        .bind(org_id)
         .fetch_all(&self.db)
         .await?;
 
         Ok(rows.into_iter().map(MotherDuckConnection::from).collect())
     }
 
-    async fn find_by_id_and_org(&self, id: Uuid, org_id: Uuid) -> Result<MotherDuckConnection> {
+    async fn find_by_id(&self, id: Uuid) -> Result<MotherDuckConnection> {
         let row = sqlx::query_as::<_, ConnectionRow>(
-            "select id, org_id, name, region_tier, enabled, watermark_start_time, last_synced_at,
+            "select id, name, region_tier, enabled, watermark_start_time, last_synced_at,
                     last_success_at, last_sync_error, created_at, updated_at
              from motherduck_connections
-             where id = $1 and org_id = $2",
+             where id = $1",
         )
         .bind(id)
-        .bind(org_id)
         .fetch_one(&self.db)
         .await?;
 
@@ -109,16 +104,15 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
 
         let row = sqlx::query_as::<_, ConnectionRow>(
             "insert into motherduck_connections
-                 (id, org_id, name, token_ciphertext, token_nonce, region_tier, enabled,
+                 (id, name, token_ciphertext, token_nonce, region_tier, enabled,
                   watermark_start_time, last_synced_at, last_success_at, last_sync_error,
                   created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-             returning id, org_id, name, region_tier, enabled, watermark_start_time,
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             returning id, name, region_tier, enabled, watermark_start_time,
                        last_synced_at, last_success_at, last_sync_error, created_at,
                        updated_at",
         )
         .bind(connection.id)
-        .bind(connection.org_id)
         .bind(&connection.name)
         .bind(&ciphertext)
         .bind(&nonce)
@@ -136,16 +130,15 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
         Ok(row.into())
     }
 
-    async fn delete(&self, id: Uuid, org_id: Uuid) -> Result<()> {
+    async fn delete(&self, id: Uuid) -> Result<()> {
         sqlx::query_as::<_, ConnectionRow>(
             "delete from motherduck_connections
-             where id = $1 and org_id = $2
-             returning id, org_id, name, region_tier, enabled, watermark_start_time,
+             where id = $1
+             returning id, name, region_tier, enabled, watermark_start_time,
                        last_synced_at, last_success_at, last_sync_error, created_at,
                        updated_at",
         )
         .bind(id)
-        .bind(org_id)
         .fetch_one(&self.db)
         .await?;
 
@@ -154,7 +147,7 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
 
     async fn find_enabled(&self) -> Result<Vec<MotherDuckConnection>> {
         let rows = sqlx::query_as::<_, ConnectionRow>(
-            "select id, org_id, name, region_tier, enabled, watermark_start_time, last_synced_at,
+            "select id, name, region_tier, enabled, watermark_start_time, last_synced_at,
                     last_success_at, last_sync_error, created_at, updated_at
              from motherduck_connections
              where enabled
@@ -211,40 +204,22 @@ mod integration_tests {
     use sqlx::{Pool, Postgres};
 
     use super::*;
-    use crate::application::services::organizations::OrganizationService;
     use crate::domain::entities::motherduck_connections::ConnectionDraft;
-    use crate::domain::entities::organizations::{Organization, OrganizationDraft};
-    use crate::domain::entities::users::{Email, PasswordHash, User};
-    use crate::infrastructure::pg::organizations::PgOrganizationService;
 
     fn cipher() -> Arc<SecretCipher> {
         Arc::new(SecretCipher::from_base64_key(&STANDARD.encode([9u8; 32])).unwrap())
     }
 
-    async fn seed_org(pool: &Pool<Postgres>, name: &str, email: &str) -> Organization {
-        let now = Utc::now();
-        let organization = OrganizationDraft::new(name)
-            .unwrap()
-            .into_new_organization(now);
-        let user = User::new(organization.id, Email::new(email).unwrap(), now);
-        PgOrganizationService::new(pool.clone())
-            .create_with_owner(organization.clone(), user, PasswordHash::new("h".into()))
-            .await
-            .unwrap();
-        organization
-    }
-
-    fn sample_connection(org_id: Uuid) -> (MotherDuckConnection, MotherDuckToken) {
+    fn sample_connection() -> (MotherDuckConnection, MotherDuckToken) {
         ConnectionDraft::new("prod", "md-token", RegionTier::Tier2)
             .unwrap()
-            .into_new_connection(org_id, Utc::now())
+            .into_new_connection(Utc::now())
     }
 
     #[sqlx::test]
     async fn insert_then_get_token_round_trips_the_secret(pool: Pool<Postgres>) {
-        let org = seed_org(&pool, "acme", "a@example.com").await;
         let service = PgMotherDuckConnectionService::new(pool, cipher());
-        let (connection, token) = sample_connection(org.id);
+        let (connection, token) = sample_connection();
 
         let inserted = service.insert(connection, token).await.unwrap();
 
@@ -254,34 +229,26 @@ mod integration_tests {
     }
 
     #[sqlx::test]
-    async fn find_all_by_org_scopes_to_the_organization(pool: Pool<Postgres>) {
-        let org_a = seed_org(&pool, "acme", "a@example.com").await;
-        let org_b = seed_org(&pool, "buzz", "b@example.com").await;
+    async fn find_all_lists_every_connection(pool: Pool<Postgres>) {
         let service = PgMotherDuckConnectionService::new(pool, cipher());
-        let (connection, token) = sample_connection(org_a.id);
+        let (connection, token) = sample_connection();
         let inserted = service.insert(connection, token).await.unwrap();
 
+        assert_eq!(service.find_all().await.unwrap(), vec![inserted.clone()]);
         assert_eq!(
-            service.find_all_by_org(org_a.id).await.unwrap(),
-            vec![inserted.clone()]
+            service.find_by_id(inserted.id).await.unwrap().id,
+            inserted.id
         );
-        assert_eq!(service.find_all_by_org(org_b.id).await.unwrap(), vec![]);
-        assert!(
-            service
-                .find_by_id_and_org(inserted.id, org_b.id)
-                .await
-                .is_err()
-        );
+        assert!(service.find_by_id(Uuid::new_v4()).await.is_err());
     }
 
     #[sqlx::test]
     async fn update_sync_state_moves_the_watermark(pool: Pool<Postgres>) {
-        let org = seed_org(&pool, "acme", "a@example.com").await;
         let service = PgMotherDuckConnectionService::new(pool, cipher());
-        let (connection, token) = sample_connection(org.id);
+        let (connection, token) = sample_connection();
         let inserted = service.insert(connection, token).await.unwrap();
 
-        let now = crate::infrastructure::pg::organizations::integration_tests::trunc_now();
+        let now = crate::infrastructure::pg::users::integration_tests::trunc_now();
         service
             .update_sync_state(
                 inserted.id,
@@ -295,10 +262,7 @@ mod integration_tests {
             .await
             .unwrap();
 
-        let found = service
-            .find_by_id_and_org(inserted.id, org.id)
-            .await
-            .unwrap();
+        let found = service.find_by_id(inserted.id).await.unwrap();
         assert_eq!(found.watermark_start_time, Some(now));
         assert_eq!(found.last_synced_at, Some(now));
         assert_eq!(found.last_success_at, Some(now));
@@ -307,12 +271,11 @@ mod integration_tests {
 
     #[sqlx::test]
     async fn a_failed_sync_keeps_the_last_success(pool: Pool<Postgres>) {
-        let org = seed_org(&pool, "acme", "a@example.com").await;
         let service = PgMotherDuckConnectionService::new(pool, cipher());
-        let (connection, token) = sample_connection(org.id);
+        let (connection, token) = sample_connection();
         let inserted = service.insert(connection, token).await.unwrap();
 
-        let succeeded_at = crate::infrastructure::pg::organizations::integration_tests::trunc_now();
+        let succeeded_at = crate::infrastructure::pg::users::integration_tests::trunc_now();
         service
             .update_sync_state(
                 inserted.id,
@@ -343,10 +306,7 @@ mod integration_tests {
             .await
             .unwrap();
 
-        let found = service
-            .find_by_id_and_org(inserted.id, org.id)
-            .await
-            .unwrap();
+        let found = service.find_by_id(inserted.id).await.unwrap();
         assert_eq!(found.last_synced_at, Some(failed_at));
         assert_eq!(found.last_success_at, Some(succeeded_at));
         assert_eq!(found.last_sync_error.as_deref(), Some("permission denied"));
@@ -355,8 +315,7 @@ mod integration_tests {
     #[sqlx::test]
     #[should_panic(expected = "Repository(NotFound)")]
     async fn delete_reports_a_missing_connection(pool: Pool<Postgres>) {
-        let org = seed_org(&pool, "acme", "a@example.com").await;
         let service = PgMotherDuckConnectionService::new(pool, cipher());
-        service.delete(Uuid::new_v4(), org.id).await.unwrap();
+        service.delete(Uuid::new_v4()).await.unwrap();
     }
 }

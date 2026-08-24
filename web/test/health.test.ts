@@ -5,7 +5,6 @@ import { describeHealth, formatAge, healthTone } from '../src/lib/services/healt
 const status = (health: IngestionHealth, overrides: Partial<ConnectionStatus> = {}) =>
 	({
 		id: 'c1',
-		org_id: 'o1',
 		name: 'prod',
 		region_tier: 'tier1',
 		enabled: health !== 'disabled',

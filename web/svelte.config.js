@@ -6,8 +6,6 @@ const config = {
 	preprocess: vitePreprocess(),
 
 	kit: {
-		// The app is served as static files behind nginx and talks to the
-		// backend over the API, so there is no server-side rendering step.
 		adapter: adapter({
 			pages: 'build',
 			assets: 'build',

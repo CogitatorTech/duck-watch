@@ -9,16 +9,13 @@ use serde::Deserialize;
 use validator::Validate;
 
 use crate::application::use_cases::auth::AuthContext;
-use crate::domain::entities::organizations::ORG_NAME_MAX_LEN;
 use crate::domain::entities::users::{EMAIL_MAX_LEN, PASSWORD_MAX_LEN, PASSWORD_MIN_LEN};
 use crate::domain::error::Error;
 use crate::infrastructure::web::State as AppState;
 use crate::infrastructure::web::middleware::{ValidatedJson, bearer_token};
 
 #[derive(Debug, Deserialize, Validate)]
-struct SignupBody {
-    #[validate(length(min = 1, max = ORG_NAME_MAX_LEN))]
-    org_name: String,
+struct SetupBody {
     #[validate(length(min = 3, max = EMAIL_MAX_LEN))]
     email: String,
     #[validate(length(min = PASSWORD_MIN_LEN, max = PASSWORD_MAX_LEN))]
@@ -33,13 +30,26 @@ struct LoginBody {
     password: String,
 }
 
-async fn post_signup(
+/// Whether the instance still needs its account. The setup page asks this
+/// before offering the form, and it is the one route that answers before
+/// anyone has signed in.
+async fn get_setup(State(state): State<AppState>) -> Result<impl IntoResponse, Error> {
+    let needed = state.auth.needs_setup().await?;
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({ "needed": needed })),
+    ))
+}
+
+/// Creates the one account. It reports a conflict once the instance has been
+/// claimed, so it cannot be used to add a second account later.
+async fn post_setup(
     State(state): State<AppState>,
-    ValidatedJson(payload): ValidatedJson<SignupBody>,
+    ValidatedJson(payload): ValidatedJson<SetupBody>,
 ) -> Result<impl IntoResponse, Error> {
     let response = state
         .auth
-        .signup(&payload.org_name, &payload.email, &payload.password)
+        .create_account(&payload.email, &payload.password)
         .await?;
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -71,7 +81,7 @@ async fn get_me(
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/auth/signup", post(post_signup))
+        .route("/auth/setup", get(get_setup).post(post_setup))
         .route("/auth/login", post(post_login))
         .route("/auth/logout", post(post_logout))
         .route("/me", get(get_me))
@@ -80,7 +90,6 @@ pub fn router() -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use uuid::Uuid;
 
     use super::*;
     use crate::application::use_cases::auth::{AuthResponse, MockAuthUseCase};
@@ -89,28 +98,23 @@ mod tests {
 
     fn sample_response() -> AuthResponse {
         AuthResponse {
-            user: User::new(
-                Uuid::new_v4(),
-                Email::new("owner@example.com").unwrap(),
-                Utc::now(),
-            ),
+            user: User::new(Email::new("owner@example.com").unwrap(), Utc::now()),
             token: "token".to_string(),
         }
     }
 
     #[tokio::test]
-    async fn post_signup_returns_201_with_a_token() {
+    async fn post_setup_returns_201_with_a_token() {
         let mut auth = MockAuthUseCase::new();
-        auth.expect_signup()
-            .return_once(|_, _, _| Ok(sample_response()));
+        auth.expect_create_account()
+            .return_once(|_, _| Ok(sample_response()));
         let state = crate::infrastructure::web::get_mock_state_with_auth(auth);
 
-        let payload = SignupBody {
-            org_name: "acme".into(),
+        let payload = SetupBody {
             email: "owner@example.com".into(),
             password: "password1".into(),
         };
-        let response = post_signup(State(state), ValidatedJson(payload))
+        let response = post_setup(State(state), ValidatedJson(payload))
             .await
             .into_response();
 

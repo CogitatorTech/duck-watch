@@ -3,22 +3,18 @@ use chrono::{Duration, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::application::services::organizations::OrganizationService;
 use crate::application::services::password::PasswordHasher;
 use crate::application::services::sessions::SessionService;
 use crate::application::services::users::UserService;
-use crate::domain::entities::organizations::{Organization, OrganizationDraft};
 use crate::domain::entities::sessions::{Session, SessionToken};
 use crate::domain::entities::users::{Email, User};
 use crate::domain::error::{Error, RepositoryErrorType, Result};
 
-/// The authenticated caller, resolved from a bearer token. Handlers scope
-/// every query by `org_id`.
+/// The authenticated caller, resolved from a bearer token. DuckWatch has one
+/// account, so this only says who is asking, not what they may see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuthContext {
     pub user_id: Uuid,
-    pub org_id: Uuid,
-    pub is_superadmin: bool,
 }
 
 /// A successful signup or login: the user plus the one-time visible token.
@@ -32,12 +28,15 @@ pub struct AuthResponse {
 #[derive(Debug, Serialize)]
 pub struct Account {
     pub user: User,
-    pub organization: Organization,
 }
 
 #[async_trait]
 pub trait AuthUseCaseTrait: Send + Sync {
-    async fn signup(&self, org_name: &str, email: &str, password: &str) -> Result<AuthResponse>;
+    /// Whether the instance still needs its account, which is what the first
+    /// run setup page asks before offering the form.
+    async fn needs_setup(&self) -> Result<bool>;
+    /// Creates the one account. It only works while no account exists.
+    async fn create_account(&self, email: &str, password: &str) -> Result<AuthResponse>;
     async fn login(&self, email: &str, password: &str) -> Result<AuthResponse>;
     async fn logout(&self, token: &str) -> Result<()>;
     async fn authenticate(&self, token: &str) -> Result<AuthContext>;
@@ -45,7 +44,6 @@ pub trait AuthUseCaseTrait: Send + Sync {
 }
 
 pub struct AuthUseCase {
-    organization_service: Box<dyn OrganizationService>,
     user_service: Box<dyn UserService>,
     session_service: Box<dyn SessionService>,
     password_hasher: Box<dyn PasswordHasher>,
@@ -54,14 +52,12 @@ pub struct AuthUseCase {
 
 impl AuthUseCase {
     pub fn new(
-        organization_service: Box<dyn OrganizationService>,
         user_service: Box<dyn UserService>,
         session_service: Box<dyn SessionService>,
         password_hasher: Box<dyn PasswordHasher>,
         session_ttl: Duration,
     ) -> Self {
         Self {
-            organization_service,
             user_service,
             session_service,
             password_hasher,
@@ -93,16 +89,18 @@ fn unknown_credential(err: Error) -> Error {
 
 #[async_trait]
 impl AuthUseCaseTrait for AuthUseCase {
-    async fn signup(&self, org_name: &str, email: &str, password: &str) -> Result<AuthResponse> {
+    async fn needs_setup(&self) -> Result<bool> {
+        Ok(!self.user_service.any_exists().await?)
+    }
+
+    async fn create_account(&self, email: &str, password: &str) -> Result<AuthResponse> {
         let now = Utc::now();
-        let organization = OrganizationDraft::new(org_name)?.into_new_organization(now);
-        let user = User::new(organization.id, Email::new(email)?, now);
+        let user = User::new(Email::new(email)?, now);
         let password_hash = self.password_hasher.hash(password)?;
 
-        let (_, user) = self
-            .organization_service
-            .create_with_owner(organization, user, password_hash)
-            .await?;
+        // The repository refuses a second account, so the check and the write
+        // cannot disagree if two requests arrive together.
+        let user = self.user_service.create(user, password_hash).await?;
 
         self.mint_session(user).await
     }
@@ -150,17 +148,12 @@ impl AuthUseCaseTrait for AuthUseCase {
             .find_by_id(session.user_id)
             .await
             .map_err(unknown_credential)?;
-        Ok(AuthContext {
-            user_id: user.id,
-            org_id: user.org_id,
-            is_superadmin: user.is_superadmin,
-        })
+        Ok(AuthContext { user_id: user.id })
     }
 
     async fn get_account(&self, context: AuthContext) -> Result<Account> {
         let user = self.user_service.find_by_id(context.user_id).await?;
-        let organization = self.organization_service.find_by_id(user.org_id).await?;
-        Ok(Account { user, organization })
+        Ok(Account { user })
     }
 }
 
@@ -169,7 +162,8 @@ mockall::mock! {
     pub AuthUseCase {}
     #[async_trait]
     impl AuthUseCaseTrait for AuthUseCase {
-        async fn signup(&self, org_name: &str, email: &str, password: &str) -> Result<AuthResponse>;
+        async fn needs_setup(&self) -> Result<bool>;
+        async fn create_account(&self, email: &str, password: &str) -> Result<AuthResponse>;
         async fn login(&self, email: &str, password: &str) -> Result<AuthResponse>;
         async fn logout(&self, token: &str) -> Result<()>;
         async fn authenticate(&self, token: &str) -> Result<AuthContext>;
@@ -180,7 +174,6 @@ mockall::mock! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::services::organizations::MockOrganizationService;
     use crate::application::services::password::MockPasswordHasher;
     use crate::application::services::sessions::MockSessionService;
     use crate::application::services::users::MockUserService;
@@ -188,7 +181,6 @@ mod tests {
     use crate::domain::error::RepositoryErrorType;
 
     struct Mocks {
-        organizations: MockOrganizationService,
         users: MockUserService,
         sessions: MockSessionService,
         hasher: MockPasswordHasher,
@@ -197,7 +189,6 @@ mod tests {
     impl Mocks {
         fn new() -> Self {
             Self {
-                organizations: MockOrganizationService::new(),
                 users: MockUserService::new(),
                 sessions: MockSessionService::new(),
                 hasher: MockPasswordHasher::new(),
@@ -206,7 +197,6 @@ mod tests {
 
         fn into_use_case(self) -> AuthUseCase {
             AuthUseCase::new(
-                Box::new(self.organizations),
                 Box::new(self.users),
                 Box::new(self.sessions),
                 Box::new(self.hasher),
@@ -216,25 +206,21 @@ mod tests {
     }
 
     fn sample_user() -> User {
-        User::new(
-            Uuid::new_v4(),
-            Email::new("owner@example.com").unwrap(),
-            Utc::now(),
-        )
+        User::new(Email::new("owner@example.com").unwrap(), Utc::now())
     }
 
     #[tokio::test]
-    async fn signup_creates_the_account_and_returns_a_token() {
+    async fn setup_creates_the_one_account_and_returns_a_token() {
         let mut mocks = Mocks::new();
         mocks
             .hasher
             .expect_hash()
             .return_once(|_| Ok(PasswordHash::new("hash".into())));
         mocks
-            .organizations
-            .expect_create_with_owner()
-            .withf(|org, user, _| org.name == "acme" && user.org_id == org.id)
-            .return_once(|org, user, _| Ok((org, user)));
+            .users
+            .expect_create()
+            .withf(|user, _| user.email.as_str() == "owner@example.com")
+            .return_once(|user, _| Ok(user));
         mocks
             .sessions
             .expect_insert()
@@ -242,7 +228,7 @@ mod tests {
 
         let response = mocks
             .into_use_case()
-            .signup("acme", "Owner@Example.com", "password1")
+            .create_account("Owner@Example.com", "password1")
             .await
             .unwrap();
 
@@ -251,20 +237,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn signup_propagates_a_duplicate_email_as_conflict() {
+    async fn setup_is_refused_once_the_instance_is_claimed() {
+        // Otherwise anyone who reaches a running instance could add their own
+        // account to it.
         let mut mocks = Mocks::new();
         mocks
             .hasher
             .expect_hash()
             .return_once(|_| Ok(PasswordHash::new("hash".into())));
         mocks
-            .organizations
-            .expect_create_with_owner()
-            .return_once(|_, _, _| Err(Error::Repository(RepositoryErrorType::Conflict)));
+            .users
+            .expect_create()
+            .return_once(|_, _| Err(Error::Repository(RepositoryErrorType::Conflict)));
+        mocks.sessions.expect_insert().never();
 
         let err = mocks
             .into_use_case()
-            .signup("acme", "owner@example.com", "password1")
+            .create_account("second@example.com", "password1")
             .await
             .unwrap_err();
 
@@ -272,6 +261,17 @@ mod tests {
             err,
             Error::Repository(RepositoryErrorType::Conflict)
         ));
+    }
+
+    #[tokio::test]
+    async fn needs_setup_reports_whether_an_account_exists() {
+        let mut mocks = Mocks::new();
+        mocks.users.expect_any_exists().return_once(|| Ok(false));
+        assert!(mocks.into_use_case().needs_setup().await.unwrap());
+
+        let mut mocks = Mocks::new();
+        mocks.users.expect_any_exists().return_once(|| Ok(true));
+        assert!(!mocks.into_use_case().needs_setup().await.unwrap());
     }
 
     #[tokio::test]
@@ -334,10 +334,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticate_resolves_the_org_scope() {
+    async fn authenticate_resolves_the_caller() {
         let user = sample_user();
         let user_id = user.id;
-        let org_id = user.org_id;
         let session = Session::new(user_id, Duration::hours(1), Utc::now());
 
         let mut mocks = Mocks::new();
@@ -352,14 +351,7 @@ mod tests {
 
         let context = mocks.into_use_case().authenticate("token").await.unwrap();
 
-        assert_eq!(
-            context,
-            AuthContext {
-                user_id,
-                org_id,
-                is_superadmin: false,
-            }
-        );
+        assert_eq!(context, AuthContext { user_id });
     }
 
     #[tokio::test]

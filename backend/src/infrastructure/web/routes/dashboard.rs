@@ -309,8 +309,6 @@ mod tests {
     fn context() -> AuthContext {
         AuthContext {
             user_id: Uuid::new_v4(),
-            org_id: Uuid::new_v4(),
-            is_superadmin: false,
         }
     }
 

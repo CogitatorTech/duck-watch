@@ -1,25 +1,14 @@
--- One organization per signup, which owns its users and connections.
-create table if not exists organizations (
-    id uuid primary key,
-    name varchar(128) not null,
-    created_at timestamp with time zone not null,
-    updated_at timestamp with time zone not null
-);
-
+-- DuckWatch is a single account tool: one team runs one instance against one
+-- MotherDuck account. The first person to open a fresh install claims it, and
+-- the insert that does so refuses a second row.
 create table if not exists users (
     id uuid primary key,
-    org_id uuid not null references organizations (id) on delete cascade,
     email varchar(320) not null unique,
     -- argon2id
     password_hash text not null,
-    -- Platform wide administrator, set by hand in SQL rather than through the
-    -- interface, so it cannot be granted by anything a request can reach.
-    is_superadmin boolean not null default false,
     created_at timestamp with time zone not null,
     updated_at timestamp with time zone not null
 );
-
-create index if not exists idx_users_org_id on users (org_id);
 
 -- Opaque bearer tokens, stored only as a sha-256 hash so the database never holds anything that could be replayed.
 create table if not exists sessions (
@@ -34,7 +23,6 @@ create index if not exists idx_sessions_user_id on sessions (user_id);
 
 create table if not exists motherduck_connections (
     id uuid primary key,
-    org_id uuid not null references organizations (id) on delete cascade,
     name varchar(128) not null,
     -- aes-256-gcm ciphertext of the motherduck service token; the key comes from the TOKEN_ENCRYPTION_KEY
     -- environment variable
@@ -55,8 +43,6 @@ create table if not exists motherduck_connections (
     created_at timestamp with time zone not null,
     updated_at timestamp with time zone not null
 );
-
-create index if not exists idx_md_connections_org_id on motherduck_connections (org_id);
 
 create table if not exists query_events (
     connection_id uuid not null references motherduck_connections (id) on delete cascade,

@@ -306,7 +306,6 @@ mod tests {
 #[cfg(all(test, feature = "integration-tests"))]
 mod live_tests {
     use super::*;
-    use crate::application::services::motherduck::MotherDuckClient as _;
 
     #[tokio::test]
     #[ignore = "needs MOTHERDUCK_TEST_TOKEN and network access"]

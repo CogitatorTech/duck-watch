@@ -47,7 +47,6 @@ impl std::fmt::Debug for MotherDuckToken {
 #[cfg_attr(test, derive(serde::Deserialize))]
 pub struct MotherDuckConnection {
     pub id: Uuid,
-    pub org_id: Uuid,
     pub name: String,
     /// Which MotherDuck price tier this account is billed at, used for the
     /// dashboard's cost estimates.
@@ -173,17 +172,15 @@ impl ConnectionDraft {
         &self.token
     }
 
-    /// Builds a new enabled connection for an organization, handing the token
-    /// back separately so it can go straight to encryption.
+    /// Builds a new enabled connection, handing the token back separately so
+    /// it can go straight to encryption.
     pub fn into_new_connection(
         self,
-        org_id: Uuid,
         now: DateTime<Utc>,
     ) -> (MotherDuckConnection, MotherDuckToken) {
         (
             MotherDuckConnection {
                 id: Uuid::new_v4(),
-                org_id,
                 name: self.name,
                 region_tier: self.region_tier,
                 enabled: true,
@@ -206,7 +203,7 @@ mod tests {
     #[test]
     fn new_trims_the_name_and_token() {
         let draft = ConnectionDraft::new("  prod  ", "  tok  ", RegionTier::Tier1).unwrap();
-        let (connection, token) = draft.into_new_connection(Uuid::new_v4(), Utc::now());
+        let (connection, token) = draft.into_new_connection(Utc::now());
         assert_eq!(connection.name, "prod");
         assert_eq!(connection.region_tier, RegionTier::Tier1);
         assert_eq!(token.reveal(), "tok");
@@ -233,7 +230,7 @@ mod tests {
     fn connection() -> MotherDuckConnection {
         ConnectionDraft::new("prod", "tok", RegionTier::Tier1)
             .unwrap()
-            .into_new_connection(Uuid::new_v4(), Utc::now())
+            .into_new_connection(Utc::now())
             .0
     }
 

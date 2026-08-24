@@ -81,22 +81,20 @@ mod tests {
     fn context() -> AuthContext {
         AuthContext {
             user_id: Uuid::new_v4(),
-            org_id: Uuid::new_v4(),
-            is_superadmin: false,
         }
     }
 
-    fn sample_connection(org_id: Uuid) -> MotherDuckConnection {
+    fn sample_connection() -> MotherDuckConnection {
         ConnectionDraft::new("prod", "tok", RegionTier::Tier1)
             .unwrap()
-            .into_new_connection(org_id, Utc::now())
+            .into_new_connection(Utc::now())
             .0
     }
 
     #[tokio::test]
     async fn post_connection_returns_201_without_the_token() {
         let context = context();
-        let connection = sample_connection(context.org_id);
+        let connection = sample_connection();
 
         let mut connections = MockConnectionsUseCase::new();
         connections

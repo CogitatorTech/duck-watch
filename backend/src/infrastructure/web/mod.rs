@@ -3,7 +3,6 @@ use std::{future::Future, sync::Arc};
 use tower_http::trace;
 
 use crate::{
-    application::use_cases::admin::AdminUseCaseTrait,
     application::use_cases::auth::AuthUseCaseTrait,
     application::use_cases::connections::ConnectionsUseCaseTrait,
     application::use_cases::dashboard::DashboardUseCaseTrait, config::Config,
@@ -18,7 +17,6 @@ pub struct State {
     auth: Arc<dyn AuthUseCaseTrait>,
     connections: Arc<dyn ConnectionsUseCaseTrait>,
     dashboard: Arc<dyn DashboardUseCaseTrait>,
-    admin: Arc<dyn AdminUseCaseTrait>,
 }
 
 impl State {
@@ -26,13 +24,11 @@ impl State {
         auth: Arc<dyn AuthUseCaseTrait>,
         connections: Arc<dyn ConnectionsUseCaseTrait>,
         dashboard: Arc<dyn DashboardUseCaseTrait>,
-        admin: Arc<dyn AdminUseCaseTrait>,
     ) -> Self {
         State {
             auth,
             connections,
             dashboard,
-            admin,
         }
     }
 }
@@ -47,7 +43,6 @@ pub async fn run(
         .nest("/api/v1", routes::auth::router())
         .nest("/api/v1/connections", routes::connections::router())
         .nest("/api/v1/dashboard", routes::dashboard::router())
-        .nest("/api/v1/admin", routes::admin::router())
         .with_state(state)
         .layer(config.get_cors_layer())
         .layer(
@@ -79,7 +74,6 @@ fn empty_mock_state() -> State {
             crate::application::use_cases::connections::MockConnectionsUseCase::new(),
         ),
         dashboard: Arc::new(crate::application::use_cases::dashboard::MockDashboardUseCase::new()),
-        admin: Arc::new(crate::application::use_cases::admin::MockAdminUseCase::new()),
     }
 }
 
@@ -99,16 +93,6 @@ pub fn get_mock_state_with_connections(
 ) -> State {
     State {
         connections: Arc::new(connections),
-        ..empty_mock_state()
-    }
-}
-
-#[cfg(test)]
-pub fn get_mock_state_with_admin(
-    admin: crate::application::use_cases::admin::MockAdminUseCase,
-) -> State {
-    State {
-        admin: Arc::new(admin),
         ..empty_mock_state()
     }
 }

@@ -88,27 +88,18 @@ mod integration_tests {
     use sqlx::{Pool, Postgres};
 
     use super::*;
-    use crate::application::services::organizations::OrganizationService;
-    use crate::domain::entities::organizations::OrganizationDraft;
+    use crate::application::services::users::UserService;
     use crate::domain::entities::sessions::SessionToken;
     use crate::domain::entities::users::{Email, PasswordHash, User};
-    use crate::infrastructure::pg::organizations::PgOrganizationService;
+    use crate::infrastructure::pg::users::PgUserService;
 
+    /// Sessions reference the account, so one has to exist first.
     async fn seed_user(pool: &Pool<Postgres>) -> User {
-        let now = Utc::now();
-        let organization = OrganizationDraft::new("acme")
-            .unwrap()
-            .into_new_organization(now);
-        let user = User::new(
-            organization.id,
-            Email::new("owner@example.com").unwrap(),
-            now,
-        );
-        PgOrganizationService::new(pool.clone())
-            .create_with_owner(organization, user.clone(), PasswordHash::new("h".into()))
+        let user = User::new(Email::new("owner@example.com").unwrap(), Utc::now());
+        PgUserService::new(pool.clone())
+            .create(user.clone(), PasswordHash::new("h".into()))
             .await
-            .unwrap();
-        user
+            .unwrap()
     }
 
     #[sqlx::test]

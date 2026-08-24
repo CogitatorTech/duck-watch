@@ -29,7 +29,6 @@ impl IntoResponse for Error {
             Error::Repository(RepositoryErrorType::Conflict) => StatusCode::CONFLICT,
             Error::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Error::Unauthorized => StatusCode::UNAUTHORIZED,
-            Error::Forbidden => StatusCode::FORBIDDEN,
             Error::External(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -69,12 +68,6 @@ mod tests {
     fn unauthorized_maps_to_401() {
         let response = Error::unauthorized().into_response();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[test]
-    fn forbidden_maps_to_403() {
-        let response = Error::forbidden().into_response();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[test]

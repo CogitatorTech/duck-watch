@@ -4,7 +4,6 @@ export type RegionTier = 'tier1' | 'tier2' | 'tier3';
 
 export type Connection = {
 	id: string;
-	org_id: string;
 	name: string;
 	region_tier: RegionTier;
 	enabled: boolean;

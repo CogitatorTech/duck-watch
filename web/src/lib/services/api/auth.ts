@@ -8,16 +8,19 @@ export type AuthResponse = {
 
 export type Account = {
 	user: SessionUser;
-	organization: {
-		id: string;
-		name: string;
-		created_at: string;
-		updated_at: string;
-	};
 };
 
-export const signup = async (body: { org_name: string; email: string; password: string }) =>
-	await apiFetch<AuthResponse>('/auth/signup', withJson({ method: 'POST' }, body));
+/**
+ * Whether this instance still needs its account. DuckWatch has one account,
+ * claimed by whoever opens a fresh install first, so this is the only thing
+ * that answers before anyone has signed in.
+ */
+export const needsSetup = async (fetcher?: typeof fetch) =>
+	await apiFetch<{ needed: boolean }>('/auth/setup', { method: 'GET' }, fetcher);
+
+/** Creates the one account. It is refused once the instance is claimed. */
+export const createAccount = async (body: { email: string; password: string }) =>
+	await apiFetch<AuthResponse>('/auth/setup', withJson({ method: 'POST' }, body));
 
 export const login = async (body: { email: string; password: string }) =>
 	await apiFetch<AuthResponse>('/auth/login', withJson({ method: 'POST' }, body));

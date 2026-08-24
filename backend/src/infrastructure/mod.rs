@@ -4,7 +4,6 @@ use std::time::Duration;
 use tokio::signal;
 use tokio::sync::watch;
 
-use crate::application::use_cases::admin::AdminUseCase;
 use crate::application::use_cases::auth::AuthUseCase;
 use crate::application::use_cases::connections::ConnectionsUseCase;
 use crate::application::use_cases::dashboard::DashboardUseCase;
@@ -35,9 +34,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     );
 
     let auth = AuthUseCase::new(
-        Box::new(pg::organizations::PgOrganizationService::new(
-            pg_pool.clone(),
-        )),
         Box::new(pg::users::PgUserService::new(pg_pool.clone())),
         Box::new(pg::sessions::PgSessionService::new(pg_pool.clone())),
         Box::new(argon2::Argon2PasswordHasher),
@@ -68,8 +64,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         )),
         Box::new(pg::query_shapes::PgQueryShapeService::new(pg_pool.clone())),
     );
-
-    let admin = AdminUseCase::new(Box::new(pg::admin::PgAdminService::new(pg_pool.clone())));
 
     let ingestion = IngestionUseCase::new(
         Box::new(
@@ -104,12 +98,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     ));
 
     let mut web_shutdown = shutdown_rx;
-    let state = web::State::new(
-        Arc::new(auth),
-        Arc::new(connections),
-        Arc::new(dashboard),
-        Arc::new(admin),
-    );
+    let state = web::State::new(Arc::new(auth), Arc::new(connections), Arc::new(dashboard));
     let result = web::run(config, state, async move {
         let _ = web_shutdown.changed().await;
     })
