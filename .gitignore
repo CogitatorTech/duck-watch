@@ -1,0 +1,56 @@
+# Rust
+/target/
+lcov.info
+.cargo-ok
+*.profraw
+cobertura.xml
+tarpaulin-report.html
+
+# Node
+node_modules/
+web/build/
+web/.svelte-kit/
+web/package/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Python tooling environment
+.venv/
+__pycache__/
+.ruff_cache/
+
+# Nix
+result
+result-*
+.direnv/
+
+# Environment files (keep the .env.example files tracked)
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.idea/
+*.iml
+.vscode/
+*.swp
+*~
+*.bak
+*.tmp
+
+# Local scratch directories
+temp/
+tmp/
+
+# Local database files
+*.db
+*.sqlite
+*.wal
+
+# OS files
+.DS_Store
+
+## The rest of file and folder patterns to ignore
+.claude/
+.codex
+.antigravitycli/

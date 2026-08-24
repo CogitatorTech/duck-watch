@@ -1,0 +1,50 @@
+name: Build Docker Images
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'web/**'
+      - 'docker-compose.yaml'
+      - '.github/workflows/docker.yml'
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: Build Images
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - name: backend
+            context: .
+            dockerfile: backend/Dockerfile
+          - name: web
+            context: ./web
+            dockerfile: web/Dockerfile
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the ${{ matrix.name }} Image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: ${{ matrix.name }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

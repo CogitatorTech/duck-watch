@@ -1,0 +1,17 @@
+# Builds both images from the working tree instead of pulling the published ones.
+# Use it with:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+#
+# or run `make start-dev`, which does the same thing.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_API_URL: http://localhost:8080/api/v1

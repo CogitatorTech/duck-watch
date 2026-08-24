@@ -1,0 +1,192 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  call-tests:
+    uses: ./.github/workflows/tests.yml
+
+  build-images:
+    # One job per image and architecture. The backend compiles libduckdb from
+    # C++ source, which takes about twenty minutes natively and far longer
+    # under emulation, so arm64 gets its own arm runner rather than QEMU.
+    name: Build ${{ matrix.image }} for ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    needs: call-tests
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, web]
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+          - image: backend
+            context: .
+            dockerfile: backend/Dockerfile
+          - image: web
+            context: ./web
+            dockerfile: web/Dockerfile
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Downcase the Registry Owner
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Each architecture is pushed by digest only. The job below joins them
+      # into one tag, so `docker pull` picks the right one on its own.
+      - name: Build and Push by Digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          outputs: type=image,name=ghcr.io/${{ env.OWNER_LC }}/duck-watch-${{ matrix.image }},push-by-digest=true,name-canonical=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.suffix }}
+
+      - name: Record the Digest
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ matrix.image }}-${{ matrix.suffix }}-${{ steps.build.outputs.digest }}"
+
+      - name: Upload the Digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  merge-images:
+    name: Publish ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    needs: build-images
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        image: [backend, web]
+    steps:
+      - name: Downcase the Registry Owner
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Download the Digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work Out the Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ env.OWNER_LC }}/duck-watch-${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=develop,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.title=DuckWatch ${{ matrix.image }}
+            org.opencontainers.image.description=Query cost and performance observability for MotherDuck
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: Create the Multi-architecture Tag
+        working-directory: /tmp/digests
+        run: |
+          # Every file here is named after the digest of one architecture.
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(for file in *; do echo "ghcr.io/${OWNER_LC}/duck-watch-${{ matrix.image }}@${file##*-}"; done)
+
+      - name: Show What Was Published
+        run: |
+          docker buildx imagetools inspect \
+            "ghcr.io/${OWNER_LC}/duck-watch-${{ matrix.image }}:$(jq -cr '.labels["org.opencontainers.image.version"]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+
+  create-release:
+    name: Draft the Release Notes
+    runs-on: ubuntu-latest
+    needs: merge-images
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Downcase the Registry Owner
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Draft the Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          body: |
+            ### Running This Release
+
+            ```bash
+            git clone https://github.com/${{ github.repository }}.git
+            cd duck-watch
+            git checkout ${{ github.ref_name }}
+            make start
+            ```
+
+            Then open <http://localhost:3000>.
+
+            ### Container Images
+
+            Published for `linux/amd64` and `linux/arm64`:
+
+            ```bash
+            docker pull ghcr.io/${{ env.OWNER_LC }}/duck-watch-backend:${{ github.ref_name }}
+            docker pull ghcr.io/${{ env.OWNER_LC }}/duck-watch-web:${{ github.ref_name }}
+            ```
+
+            ### Upgrading
+
+            Pull the new images and restart. The backend applies its own migrations on startup.
+            Keep your `TOKEN_ENCRYPTION_KEY` unchanged, or the stored MotherDuck tokens cannot be read.

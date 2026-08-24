@@ -1,0 +1,93 @@
+@import 'tailwindcss';
+
+/*
+ * Semantic colors, so a component names the role it wants rather than a
+ * palette shade, and the dark theme is one block below instead of a `dark:`
+ * variant on every element.
+ */
+@theme {
+	--color-canvas: #f9fafb;
+	--color-surface: #ffffff;
+	/* Zebra stripes behind a table row. */
+	--color-surface-alt: #f9fafb;
+	/* Expanded detail, which must not be mistaken for a striped row. */
+	--color-surface-sunken: #f1f5f9;
+	--color-line: #e5e7eb;
+	--color-line-soft: #f3f4f6;
+	--color-ink: #111827;
+	/* Every text tier clears WCAG AA (4.5:1) on surface and canvas. */
+	--color-muted: #4b5563;
+	--color-faint: #686f7c;
+	--color-accent: #8b3eff;
+	--color-accent-strong: #7320e0;
+	--color-accent-contrast: #ffffff;
+	--color-neutral-button: #e5e7eb;
+	--color-danger: #d32020;
+	--color-danger-strong: #b91c1c;
+	--color-danger-ink: #b91c1c;
+	--color-danger-line: #fecaca;
+	--color-danger-surface: #fef2f2;
+	/* Something needs attention but nothing is broken, such as ingestion
+	   falling behind. */
+	--color-warn-ink: #8a5300;
+	--color-warn-line: #fcd34d;
+	--color-warn-surface: #fffbeb;
+	/* A state that is working as intended, such as ingestion keeping up. */
+	--color-ok-ink: #15803d;
+	/* SQL highlighting in the expanded query box. */
+	--color-sql-keyword: #7320e0;
+	--color-sql-string: #047857;
+	--color-sql-number: #0369a1;
+	--color-sql-comment: #686f7c;
+	/* Latency chart marks. */
+	--color-chart-bar: #ddd0ff;
+	--color-chart-bar-failed: #fca5a5;
+	--color-chart-line: #7320e0;
+}
+
+[data-theme='dark'] {
+	--color-canvas: #00002b;
+	--color-surface: #232350;
+	--color-surface-alt: #2c2c64;
+	--color-surface-sunken: #17173c;
+	--color-line: #3b3b6b;
+	--color-line-soft: #2f2f5c;
+	--color-ink: #e2e8f0;
+	--color-muted: #cbd5e1;
+	--color-faint: #94a3b8;
+	--color-accent: #b380ff;
+	--color-accent-strong: #c9a6ff;
+	--color-accent-contrast: #00002b;
+	--color-neutral-button: #3b3b6b;
+	--color-danger: #f87171;
+	--color-danger-strong: #ef4444;
+	--color-danger-ink: #fca5a5;
+	--color-danger-line: #7f1d1d;
+	--color-danger-surface: #341c1c;
+	--color-warn-ink: #fcd34d;
+	--color-warn-line: #78350f;
+	--color-warn-surface: #3a2e12;
+	--color-ok-ink: #4ade80;
+	--color-sql-keyword: #c9a6ff;
+	--color-sql-string: #6ee7b7;
+	--color-sql-number: #7dd3fc;
+	--color-sql-comment: #94a3b8;
+	--color-chart-bar: #5b3a9e;
+	--color-chart-bar-failed: #b91c1c;
+	--color-chart-line: #c9a6ff;
+
+	/* Native widgets: scroll bars, date pickers, and select menus. */
+	color-scheme: dark;
+}
+
+/* Readers who ask for less motion get none of the decoration. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

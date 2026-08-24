@@ -1,0 +1,11 @@
+pub mod admin;
+pub mod motherduck;
+pub mod motherduck_connections;
+pub mod organizations;
+pub mod password;
+pub mod query_events;
+pub mod query_shapes;
+pub mod sessions;
+pub mod sql_analysis;
+pub mod storage_samples;
+pub mod users;

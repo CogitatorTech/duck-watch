@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    # Published images by default, so a first run is a pull rather than a
+    # twenty minute compile. Use docker-compose.dev.yaml to build from source.
+    image: ghcr.io/cogitatortech/duck-watch-backend:${DUCKWATCH_VERSION:-latest}
+    environment:
+      PORT: 8080
+      LOG_LEVEL: info
+      LOG_PRETTY: "false"
+      CORS_ORIGINS: "*"
+      DATABASE_URL: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
+      # Read from the .env file beside this one, which `make setup` creates
+      # with a freshly generated key. There is deliberately no default: a
+      # shared key would let any installation decrypt another's tokens.
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      INGEST_POLL_INTERVAL_SECONDS: 60
+      INGEST_OVERLAP_MINUTES: 15
+      INGEST_BATCH_LIMIT: 5000
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: ghcr.io/cogitatortech/duck-watch-web:${DUCKWATCH_VERSION:-latest}
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  db:
+    driver: local

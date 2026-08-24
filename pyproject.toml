@@ -1,0 +1,33 @@
+[project]
+name = "duck-watch"
+version = "0.1.0"
+description = "The Python environment for the `duck-watch` project"
+
+requires-python = ">=3.11"
+dependencies = [
+    "pre-commit>=4.6.1",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.2",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+indent-width = 4
+target-version = "py311"
+exclude = [".git", ".venv", "backend", "web", "target", "tmp"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "SIM", "RUF"]
+fixable = ["ALL"]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
