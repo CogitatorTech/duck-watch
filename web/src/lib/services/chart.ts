@@ -14,10 +14,17 @@ export type ChartPoint = {
 
 export type ChartLayout = {
 	bars: ChartBar[];
-	p95Line: ChartPoint[];
+	/**
+	 * The p95 line, split wherever a bucket had no queries. Joining across a
+	 * gap would draw a latency trend through a period when nothing ran, so
+	 * each run of consecutive measured buckets is its own segment.
+	 */
+	p95Segments: ChartPoint[][];
 	/** The tallest bar's value, in the measure's own units. */
 	maxValue: number;
 	maxP95: number;
+	/** How many buckets had at least one query, for the caption below. */
+	populatedBuckets: number;
 };
 
 /** What the bars stand for: how many queries ran, or what they cost. */
@@ -35,7 +42,7 @@ export const layoutChart = (
 	measure: ChartMeasure = 'latency',
 ): ChartLayout => {
 	if (buckets.length === 0) {
-		return { bars: [], p95Line: [], maxValue: 0, maxP95: 0 };
+		return { bars: [], p95Segments: [], maxValue: 0, maxP95: 0, populatedBuckets: 0 };
 	}
 
 	const valueOf = (bucket: LatencyBucket) =>
@@ -55,15 +62,30 @@ export const layoutChart = (
 		bucket,
 	}));
 
-	const p95Line = buckets
-		.map((bucket, index) => ({ bucket, index }))
-		.filter(({ bucket }) => bucket.p95_ms !== null)
-		.map(({ bucket, index }) => ({
+	// Each run of consecutive measured buckets becomes one segment. A gap
+	// ends the current segment rather than being drawn through.
+	const p95Segments: ChartPoint[][] = [];
+	let segment: ChartPoint[] = [];
+	buckets.forEach((bucket, index) => {
+		if (bucket.p95_ms === null) {
+			if (segment.length > 0) p95Segments.push(segment);
+			segment = [];
+			return;
+		}
+		segment.push({
 			x: index * slot + slot / 2,
-			y: height - ((bucket.p95_ms ?? 0) / maxP95) * height,
-		}));
+			y: height - (bucket.p95_ms / maxP95) * height,
+		});
+	});
+	if (segment.length > 0) p95Segments.push(segment);
 
-	return { bars, p95Line, maxValue, maxP95 };
+	return {
+		bars,
+		p95Segments,
+		maxValue,
+		maxP95,
+		populatedBuckets: buckets.filter((bucket) => bucket.query_count > 0).length,
+	};
 };
 
 /** Formats a millisecond duration for display, switching units as it grows. */

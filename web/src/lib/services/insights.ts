@@ -101,6 +101,7 @@ export type ShapeFindings = {
 	estimated_cost_usd: number;
 	cost_share: number;
 	runs: number;
+	bytes_spilled: number;
 	last_seen: string;
 	/** Every reason this shape was flagged, in the order they were raised. */
 	reasons: Insight[];
@@ -127,12 +128,25 @@ export const groupByShape = (findings: Insight[]): ShapeFindings[] => {
 			estimated_cost_usd: finding.estimated_cost_usd,
 			cost_share: finding.cost_share,
 			runs: finding.runs,
+			bytes_spilled: finding.bytes_spilled,
 			last_seen: finding.last_seen,
 			reasons: [finding],
 		});
 	}
 
 	return order.map((fingerprint) => byShape.get(fingerprint) as ShapeFindings);
+};
+
+/**
+ * What was measured about one query, as opposed to about one reason. Runs and
+ * spilled bytes belong to the query, so they are said once rather than
+ * repeated in every reason beside it.
+ */
+export const shapeEvidence = (shape: ShapeFindings): string => {
+	const runs = `${shape.runs} ${shape.runs === 1 ? 'run' : 'runs'}`;
+	return shape.bytes_spilled > 0
+		? `${runs} · ${formatBytes(shape.bytes_spilled)} written to disk`
+		: runs;
 };
 
 /**

@@ -4,6 +4,7 @@ import {
 	STATEMENT_LIMIT,
 	findingAsText,
 	groupByShape,
+	shapeEvidence,
 	insightCopy,
 	insightEvidence,
 	isStatementCut,
@@ -133,6 +134,33 @@ describe('groupByShape', () => {
 
 	it('returns nothing for nothing', () => {
 		expect(groupByShape([])).toEqual([]);
+	});
+});
+
+describe('shapeEvidence', () => {
+	it('states the runs once, however many reasons the query raised', () => {
+		// Runs belong to the query, not to each reason, so putting them in
+		// every chip repeated the same number three times on one card.
+		const shape = groupByShape([
+			insight('no_filter', { runs: 12 }),
+			insight('select_star', { runs: 12 }),
+			insight('cross_join', { runs: 12 }),
+		])[0];
+
+		expect(shapeEvidence(shape)).toBe('12 runs');
+	});
+
+	it('adds the spilled volume when there is any', () => {
+		const shape = groupByShape([
+			insight('spilling', { runs: 9, bytes_spilled: 1_101_100_000_000 }),
+		])[0];
+
+		expect(shapeEvidence(shape)).toContain('9 runs');
+		expect(shapeEvidence(shape)).toMatch(/TB|GB/);
+	});
+
+	it('keeps the unit singular for a single run', () => {
+		expect(shapeEvidence(groupByShape([insight('select_star', { runs: 1 })])[0])).toBe('1 run');
 	});
 });
 

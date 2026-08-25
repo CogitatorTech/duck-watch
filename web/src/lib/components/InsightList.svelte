@@ -5,7 +5,7 @@
 		findingAsText,
 		groupByShape,
 		insightCopy,
-		insightEvidence,
+		shapeEvidence,
 		statementForCopy,
 	} from '$lib/services/insights';
 	import { previewSql } from '$lib/services/sql';
@@ -74,20 +74,28 @@
 	<p class="py-6 text-center text-sm text-muted">{emptyMessage}</p>
 {:else}
 	<!--
-		A count per kind, because the same problem across forty shapes is one
-		thing to fix rather than forty, and the list below only has room for
-		the most expensive of them.
+		Each reason is explained once, here. Thirty three queries running out
+		of memory is one decision to make, not thirty three, and repeating the
+		same advice on every card below buried the reasons that differ.
 	-->
-	<ul class="mb-4 flex flex-wrap gap-2">
+	<ul class="@container mb-4 grid gap-2 @2xl:grid-cols-2">
 		{#each insights.totals as total (total.antipattern)}
-			<li class="rounded border border-line bg-surface-alt px-2 py-1 text-xs">
-				<span class="font-medium">{insightCopy(total.antipattern).title}</span>
-				<span class="text-muted">
-					&middot; {total.shapes}
-					{total.shapes === 1 ? 'shape' : 'shapes'} &middot; {formatUsd(
-						total.estimated_cost_usd,
-					)}
-				</span>
+			{@const copy = insightCopy(total.antipattern)}
+			<li class="rounded border border-line bg-surface-alt px-3 py-2 text-xs">
+				<p>
+					<span class="font-medium">{copy.title}</span>
+					<span class="text-muted">
+						&middot; {total.shapes}
+						{total.shapes === 1 ? 'query' : 'queries'} &middot; {formatUsd(
+							total.estimated_cost_usd,
+						)}
+					</span>
+				</p>
+				<p class="mt-1 text-muted">
+					{copy.explanation}
+					<span class="font-medium text-ink">Try:</span>
+					{copy.suggestion}
+				</p>
 			</li>
 		{/each}
 	</ul>
@@ -108,7 +116,7 @@
 					<ul class="flex flex-wrap gap-1.5">
 						{#each shape.reasons as reason (reason.antipattern)}
 							<li
-								class="rounded border border-line bg-surface-alt px-2 py-0.5 text-xs font-medium"
+								class="rounded border border-line bg-surface-alt px-2 py-0.5 text-xs"
 							>
 								{insightCopy(reason.antipattern).title}
 							</li>
@@ -122,16 +130,9 @@
 					</p>
 				</div>
 
-				{#each shape.reasons as reason (reason.antipattern)}
-					{@const copy = insightCopy(reason.antipattern)}
-					<p class="mt-2 text-sm text-muted">
-						<span class="font-medium text-ink">{copy.title}.</span>
-						{copy.explanation}
-						<span class="font-medium text-ink">Try:</span>
-						{copy.suggestion}
-						<span class="text-faint">({insightEvidence(reason)}.)</span>
-					</p>
-				{/each}
+				<p class="mt-1 text-xs text-muted">
+					{shapeEvidence(shape)} &middot; last run {formatTimestamp(shape.last_seen)}
+				</p>
 
 				<button
 					type="button"
@@ -142,9 +143,9 @@
 					<code class="text-xs [overflow-wrap:anywhere] whitespace-pre-wrap">
 						{truncate(previewSql(shape.example_sql), 200)}
 					</code>
-					<span class="mt-1 block text-xs text-faint">
-						Filters the page to this shape. Last run {formatTimestamp(shape.last_seen)}.
-					</span>
+					<span class="mt-1 block text-xs text-faint"
+						>Filters the page to this shape.</span
+					>
 				</button>
 
 				<!--
