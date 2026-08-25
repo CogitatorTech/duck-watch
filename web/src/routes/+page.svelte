@@ -351,105 +351,38 @@
 {/if}
 
 {#if data.connections.length > 0}
-	<div class="mt-4">
-		<Panel>
-			<div class="flex flex-wrap items-center gap-2">
-				<select
-					bind:value={connectionId}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
-					aria-label="Connection"
-				>
-					{#each connections as connection (connection.id)}
-						<option value={connection.id}>{connection.name}</option>
-					{/each}
-				</select>
-				<select
-					bind:value={window}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
-					aria-label="Time window"
-				>
-					{#each windows as option (option.value)}
-						<option value={option.value}>{option.label}</option>
-					{/each}
-				</select>
-				<Button
-					variant="secondary"
-					size="sm"
-					disabled={loading}
-					onclick={() => refresh(false)}
-				>
-					Refresh
-				</Button>
-				<span class="w-20 text-xs text-muted" aria-live="polite">
-					{loading ? 'Updating...' : ''}
-				</span>
-				<label class="flex items-center gap-1.5 text-sm text-muted">
-					<input type="checkbox" bind:checked={showInternal} class="accent-accent" />
-					Show DuckWatch queries
-				</label>
-				<select
-					value={getTimeZoneMode()}
-					onchange={(event) =>
-						setTimeZoneMode(event.currentTarget.value === 'utc' ? 'utc' : 'local')}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
-					aria-label="Time zone"
-					title="MotherDuck reports its query history in UTC"
-				>
-					<option value="local">{localTimeZoneName()}</option>
-					<option value="utc">UTC</option>
-				</select>
-			</div>
-
-			<div
-				class="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3 text-sm text-muted"
-			>
-				<label class="flex items-center gap-1.5">
-					From
-					<Input
-						bind:value={fromInput}
-						type="datetime-local"
-						step="60"
-						onfocus={seedRange}
-						class="w-56 text-sm"
-						aria-label="Range start date and time"
-					/>
-				</label>
-				<label class="flex items-center gap-1.5">
-					To
-					<Input
-						bind:value={toInput}
-						type="datetime-local"
-						step="60"
-						onfocus={seedRange}
-						class="w-56 text-sm"
-						aria-label="Range end date and time"
-					/>
-				</label>
-				<Button
-					variant="secondary"
-					size="sm"
-					disabled={!fromInput && !toInput}
-					onclick={clearRange}
-				>
-					Use preset window
-				</Button>
-				<!--
-					The zone never changes, so it never disappears. Only the state
-					sentence beside it swaps, and both trail the controls so their
-					length cannot move anything.
-				-->
-				<span class="text-xs text-faint">Times in {localTimeZoneName()}.</span>
-				<span class="text-xs text-faint">
-					{#if rangeActive}
-						Custom range in use; the preset dropdown is ignored.
-					{:else if fromInput || toInput}
-						Set a start before an end to use a custom range.
-					{:else}
-						Empty fields use the preset window.
-					{/if}
-				</span>
-			</div>
-		</Panel>
+	<!--
+		Scope and an action rather than filters: which account is being read,
+		on which clock, and a way to refetch now. These stay usable while the
+		first sync is still running, so they sit outside the filters below.
+	-->
+	<div class="mt-4 flex flex-wrap items-center gap-2">
+		<select
+			bind:value={connectionId}
+			class="rounded border border-line bg-surface px-3 py-2 text-sm"
+			aria-label="Connection"
+		>
+			{#each connections as connection (connection.id)}
+				<option value={connection.id}>{connection.name}</option>
+			{/each}
+		</select>
+		<select
+			value={getTimeZoneMode()}
+			onchange={(event) =>
+				setTimeZoneMode(event.currentTarget.value === 'utc' ? 'utc' : 'local')}
+			class="rounded border border-line bg-surface px-3 py-2 text-sm"
+			aria-label="Time zone"
+			title="MotherDuck reports its query history in UTC"
+		>
+			<option value="local">{localTimeZoneName()}</option>
+			<option value="utc">UTC</option>
+		</select>
+		<Button variant="secondary" size="sm" disabled={loading} onclick={() => refresh(false)}>
+			Refresh
+		</Button>
+		<span class="w-20 text-xs text-muted" aria-live="polite">
+			{loading ? 'Updating...' : ''}
+		</span>
 	</div>
 {/if}
 
@@ -470,7 +403,68 @@
 			title="Filters"
 			description="These narrow the tiles, the chart, the cost attribution, and the query tables. Storage shows what you hold now, so filters do not change it."
 		>
+			<!--
+				The time range is a filter like any other, so it lives here
+				rather than in a panel of its own.
+			-->
 			<div class="flex flex-wrap items-center gap-2">
+				<select
+					bind:value={window}
+					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					aria-label="Time window"
+				>
+					{#each windows as option (option.value)}
+						<option value={option.value}>{option.label}</option>
+					{/each}
+				</select>
+				<label class="flex items-center gap-1.5 text-sm text-muted">
+					From
+					<Input
+						bind:value={fromInput}
+						type="datetime-local"
+						step="60"
+						onfocus={seedRange}
+						class="w-56 text-sm"
+						aria-label="Range start date and time"
+					/>
+				</label>
+				<label class="flex items-center gap-1.5 text-sm text-muted">
+					To
+					<Input
+						bind:value={toInput}
+						type="datetime-local"
+						step="60"
+						onfocus={seedRange}
+						class="w-56 text-sm"
+						aria-label="Range end date and time"
+					/>
+				</label>
+				<Button
+					variant="secondary"
+					size="sm"
+					disabled={!fromInput && !toInput}
+					onclick={clearRange}
+				>
+					Use preset window
+				</Button>
+				<!--
+					The zone never changes, so it never disappears. Only the
+					sentence beside it swaps, and both trail the controls so
+					their length cannot move anything.
+				-->
+				<span class="text-xs text-faint">Times in {localTimeZoneName()}.</span>
+				<span class="text-xs text-faint">
+					{#if rangeActive}
+						Custom range in use; the preset dropdown is ignored.
+					{:else if fromInput || toInput}
+						Set a start before an end to use a custom range.
+					{:else}
+						Empty fields use the preset window.
+					{/if}
+				</span>
+			</div>
+
+			<div class="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
 				<Input
 					bind:value={searchInput}
 					type="search"
@@ -511,6 +505,10 @@
 						aria-label="Minimum duration in seconds"
 					/>
 					s
+				</label>
+				<label class="flex items-center gap-1.5 text-sm text-muted">
+					<input type="checkbox" bind:checked={showInternal} class="accent-accent" />
+					Show DuckWatch queries
 				</label>
 				<Button
 					variant="secondary"

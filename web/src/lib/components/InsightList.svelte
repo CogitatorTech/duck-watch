@@ -3,6 +3,7 @@
 	import { formatUsd } from '$lib/services/chart';
 	import {
 		findingAsText,
+		groupByShape,
 		insightCopy,
 		insightEvidence,
 		statementForCopy,
@@ -28,6 +29,9 @@
 	} = $props();
 
 	let hidden = $derived(insights.total - insights.findings.length);
+	// The backend reports one finding per reason, so the same query can come
+	// back two or three times. Gathering them keeps one card per query.
+	let shapes = $derived(groupByShape(insights.findings));
 
 	// Which button last copied, so only that one confirms. Cleared on a timer
 	// rather than left standing, since it describes a moment.
@@ -89,50 +93,57 @@
 	</ul>
 
 	<ul class="@container divide-y divide-line-soft">
-		{#each insights.findings as insight (`${insight.antipattern}:${insight.fingerprint}`)}
-			{@const copy = insightCopy(insight.antipattern)}
-			{@const active = selected === insight.fingerprint}
+		{#each shapes as shape (shape.fingerprint)}
+			{@const active = selected === shape.fingerprint}
 			<li
 				class="border-l-2 px-1 py-3 first:pt-0 last:pb-0 {active
 					? 'border-l-accent bg-surface-sunken'
 					: 'border-l-transparent'}"
 			>
 				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-					<h3 class="text-sm font-semibold">{copy.title}</h3>
 					<!--
-						The cost sits beside the finding, because what it cost
-						is what decides whether it is worth changing.
+						The reasons lead, because they say what to do. The cost
+						sits beside them, because it says whether to bother.
 					-->
+					<ul class="flex flex-wrap gap-1.5">
+						{#each shape.reasons as reason (reason.antipattern)}
+							<li
+								class="rounded border border-line bg-surface-alt px-2 py-0.5 text-xs font-medium"
+							>
+								{insightCopy(reason.antipattern).title}
+							</li>
+						{/each}
+					</ul>
 					<p class="text-sm tabular-nums">
-						{formatUsd(insight.estimated_cost_usd)}
+						{formatUsd(shape.estimated_cost_usd)}
 						<span class="text-muted">
-							({(insight.cost_share * 100).toFixed(1)}% of the period)
+							({(shape.cost_share * 100).toFixed(1)}% of the period)
 						</span>
 					</p>
 				</div>
 
-				<p class="mt-1 text-sm text-muted">{copy.explanation}</p>
-
-				<p class="mt-1 text-sm text-muted">
-					<span class="font-medium text-ink">Evidence:</span>
-					{insightEvidence(insight)}.
-					<span class="font-medium text-ink">Suggestion:</span>
-					{copy.suggestion}
-				</p>
+				{#each shape.reasons as reason (reason.antipattern)}
+					{@const copy = insightCopy(reason.antipattern)}
+					<p class="mt-2 text-sm text-muted">
+						<span class="font-medium text-ink">{copy.title}.</span>
+						{copy.explanation}
+						<span class="font-medium text-ink">Try:</span>
+						{copy.suggestion}
+						<span class="text-faint">({insightEvidence(reason)}.)</span>
+					</p>
+				{/each}
 
 				<button
 					type="button"
 					class="mt-2 block w-full cursor-pointer rounded border border-line bg-surface-sunken px-2 py-1.5 text-left hover:border-accent"
-					onclick={() => onSelect(insight.fingerprint)}
+					onclick={() => onSelect(shape.fingerprint)}
 					aria-pressed={active}
 				>
 					<code class="text-xs [overflow-wrap:anywhere] whitespace-pre-wrap">
-						{truncate(previewSql(insight.example_sql), 200)}
+						{truncate(previewSql(shape.example_sql), 200)}
 					</code>
 					<span class="mt-1 block text-xs text-faint">
-						Filters the page to this shape. Last run {formatTimestamp(
-							insight.last_seen,
-						)}.
+						Filters the page to this shape. Last run {formatTimestamp(shape.last_seen)}.
 					</span>
 				</button>
 
@@ -146,28 +157,26 @@
 						class="w-28 rounded border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
 						onclick={async () =>
 							toClipboard(
-								`sql:${insight.fingerprint}`,
-								await fullStatement(insight.fingerprint, insight.example_sql),
+								`sql:${shape.fingerprint}`,
+								await fullStatement(shape.fingerprint, shape.example_sql),
 							)}
 					>
-						{copiedKey === `sql:${insight.fingerprint}` ? 'Copied' : 'Copy query'}
+						{copiedKey === `sql:${shape.fingerprint}` ? 'Copied' : 'Copy query'}
 					</button>
 					<button
 						type="button"
 						class="w-28 rounded border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
 						onclick={async () =>
 							toClipboard(
-								`finding:${insight.antipattern}:${insight.fingerprint}`,
+								`finding:${shape.fingerprint}`,
 								findingAsText(
-									insight,
-									formatUsd(insight.estimated_cost_usd),
-									await fullStatement(insight.fingerprint, insight.example_sql),
+									shape,
+									formatUsd(shape.estimated_cost_usd),
+									await fullStatement(shape.fingerprint, shape.example_sql),
 								),
 							)}
 					>
-						{copiedKey === `finding:${insight.antipattern}:${insight.fingerprint}`
-							? 'Copied'
-							: 'Copy finding'}
+						{copiedKey === `finding:${shape.fingerprint}` ? 'Copied' : 'Copy finding'}
 					</button>
 				</div>
 			</li>
@@ -176,12 +185,16 @@
 
 	<p class="mt-3 text-xs text-faint">
 		{#if hidden > 0}
-			Showing the {insights.findings.length} most expensive of {insights.total} findings. The other
-			{hidden} are counted above but not listed.
+			Showing the {insights.findings.length} most expensive of {insights.total} findings, across
+			{shapes.length}
+			{shapes.length === 1 ? 'query' : 'queries'}. The other {hidden} are counted above but not
+			listed.
 		{:else}
-			All {insights.total} {insights.total === 1 ? 'finding' : 'findings'} are listed.
+			{insights.total}
+			{insights.total === 1 ? 'finding' : 'findings'} across {shapes.length}
+			{shapes.length === 1 ? 'query' : 'queries'}.
 		{/if}
-		These are signals worth checking, not conclusions, and the costs are estimates. One shape can
-		raise more than one finding, so the totals above overlap. Do not add them up.
+		These are signals worth checking, not conclusions, and the costs are estimates. A query can raise
+		more than one finding, so the totals above overlap. Do not add them up.
 	</p>
 {/if}

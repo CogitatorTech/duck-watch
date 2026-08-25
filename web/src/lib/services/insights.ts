@@ -90,22 +90,74 @@ export const statementForCopy = (sql: string): string =>
 		: sql;
 
 /**
- * One finding as plain text, for pasting into a message or a ticket. A
- * finding is usually passed to whoever owns the query, so it carries the
- * reason and the numbers as well as the statement. The caller supplies the
- * statement, since the whole one is read separately from the listing.
+ * Every finding raised against one query shape. The backend reports findings
+ * one per reason, so the same statement can come back two or three times.
+ * Reading it that way means the same SQL, evidence, and buttons repeat down
+ * the page, so they are gathered here into one entry per query.
  */
-export const findingAsText = (insight: Insight, cost: string, statement: string): string => {
-	const copy = insightCopy(insight.antipattern);
-	const share = `${(insight.cost_share * 100).toFixed(1)}% of the period`;
-	return [
-		copy.title,
+export type ShapeFindings = {
+	fingerprint: string;
+	example_sql: string;
+	estimated_cost_usd: number;
+	cost_share: number;
+	runs: number;
+	last_seen: string;
+	/** Every reason this shape was flagged, in the order they were raised. */
+	reasons: Insight[];
+};
+
+/**
+ * Gathers findings by the shape they describe, keeping the order the backend
+ * chose. A shape appears where its first, and so its dearest, finding did.
+ */
+export const groupByShape = (findings: Insight[]): ShapeFindings[] => {
+	const order: string[] = [];
+	const byShape = new Map<string, ShapeFindings>();
+
+	for (const finding of findings) {
+		const existing = byShape.get(finding.fingerprint);
+		if (existing) {
+			existing.reasons.push(finding);
+			continue;
+		}
+		order.push(finding.fingerprint);
+		byShape.set(finding.fingerprint, {
+			fingerprint: finding.fingerprint,
+			example_sql: finding.example_sql,
+			estimated_cost_usd: finding.estimated_cost_usd,
+			cost_share: finding.cost_share,
+			runs: finding.runs,
+			last_seen: finding.last_seen,
+			reasons: [finding],
+		});
+	}
+
+	return order.map((fingerprint) => byShape.get(fingerprint) as ShapeFindings);
+};
+
+/**
+ * One query shape and everything found about it, as plain text for pasting
+ * into a message or a ticket. It is usually passed to whoever owns the query,
+ * so it carries the reasons and the numbers as well as the statement. The
+ * caller supplies the statement, since the whole one is read separately from
+ * the listing.
+ */
+export const findingAsText = (shape: ShapeFindings, cost: string, statement: string): string => {
+	const share = `${(shape.cost_share * 100).toFixed(1)}% of the period`;
+	const lines = [
+		`Query shape: ${shape.fingerprint}`,
 		`Cost: ${cost} (${share})`,
-		`Evidence: ${insightEvidence(insight)}`,
-		`Why: ${copy.explanation}`,
-		`Try: ${copy.suggestion}`,
-		`Query shape: ${insight.fingerprint}`,
+		`Runs: ${shape.runs}`,
 		'',
-		statementForCopy(statement),
-	].join('\n');
+	];
+	for (const reason of shape.reasons) {
+		const copy = insightCopy(reason.antipattern);
+		lines.push(`${copy.title}`);
+		lines.push(`  Evidence: ${insightEvidence(reason)}`);
+		lines.push(`  Why: ${copy.explanation}`);
+		lines.push(`  Try: ${copy.suggestion}`);
+		lines.push('');
+	}
+	lines.push(statementForCopy(statement));
+	return lines.join('\n');
 };

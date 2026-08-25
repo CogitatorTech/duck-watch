@@ -3,6 +3,7 @@ import type { Antipattern, Insight } from '../src/lib/services/api/dashboard';
 import {
 	STATEMENT_LIMIT,
 	findingAsText,
+	groupByShape,
 	insightCopy,
 	insightEvidence,
 	isStatementCut,
@@ -101,16 +102,52 @@ describe('statementForCopy', () => {
 	});
 });
 
+describe('groupByShape', () => {
+	it('gathers every reason for one query into a single entry', () => {
+		// The panel showed the same statement three times over, once per
+		// reason, with its SQL and buttons repeated each time.
+		const grouped = groupByShape([
+			insight('no_filter', { fingerprint: 'aaaa' }),
+			insight('select_star', { fingerprint: 'aaaa' }),
+			insight('order_without_limit', { fingerprint: 'bbbb' }),
+		]);
+
+		expect(grouped).toHaveLength(2);
+		expect(grouped[0].fingerprint).toBe('aaaa');
+		expect(grouped[0].reasons.map((r) => r.antipattern)).toEqual(['no_filter', 'select_star']);
+		expect(grouped[1].reasons).toHaveLength(1);
+	});
+
+	it('keeps the order the backend chose', () => {
+		// Findings arrive most expensive first, and a shape belongs where its
+		// dearest finding put it.
+		const grouped = groupByShape([
+			insight('spilling', { fingerprint: 'dear', estimated_cost_usd: 40 }),
+			insight('select_star', { fingerprint: 'cheap', estimated_cost_usd: 1 }),
+			insight('no_filter', { fingerprint: 'dear', estimated_cost_usd: 40 }),
+		]);
+
+		expect(grouped.map((g) => g.fingerprint)).toEqual(['dear', 'cheap']);
+		expect(grouped[0].reasons).toHaveLength(2);
+	});
+
+	it('returns nothing for nothing', () => {
+		expect(groupByShape([])).toEqual([]);
+	});
+});
+
 describe('findingAsText', () => {
 	const text = () =>
 		findingAsText(
-			insight('spilling', {
-				bytes_spilled: 6_800_000_000,
-				runs: 138,
-				cost_share: 0.182,
-				example_sql: 'select * from big',
-				fingerprint: 'cd0f03a5054bb680',
-			}),
+			groupByShape([
+				insight('spilling', {
+					bytes_spilled: 6_800_000_000,
+					runs: 138,
+					cost_share: 0.182,
+					example_sql: 'select * from big',
+					fingerprint: 'cd0f03a5054bb680',
+				}),
+			])[0],
 			'$12.34',
 			'select * from big',
 		);
@@ -142,7 +179,7 @@ describe('findingAsText', () => {
 		// Only reached when the read for the whole statement failed and the
 		// listing's cut copy is all there is.
 		const out = findingAsText(
-			insight('select_star'),
+			groupByShape([insight('select_star')])[0],
 			'$1.00',
 			'x'.repeat(STATEMENT_LIMIT) + '...',
 		);
@@ -151,7 +188,7 @@ describe('findingAsText', () => {
 
 	it('uses the statement it is given, not the one in the listing', () => {
 		const out = findingAsText(
-			insight('select_star', { example_sql: 'select * from cut...' }),
+			groupByShape([insight('select_star', { example_sql: 'select * from cut...' })])[0],
 			'$1.00',
 			'select a, b from whole',
 		);
