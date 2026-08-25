@@ -81,7 +81,7 @@
 	<ul class="@container mb-4 grid gap-2 @2xl:grid-cols-2">
 		{#each insights.totals as total (total.antipattern)}
 			{@const copy = insightCopy(total.antipattern)}
-			<li class="rounded border border-line bg-surface-alt px-3 py-2 text-xs">
+			<li class="rounded-lg border border-line bg-surface-alt px-3 py-2 text-xs">
 				<p>
 					<span class="font-medium">{copy.title}</span>
 					<span class="text-muted">
@@ -116,7 +116,7 @@
 					<ul class="flex flex-wrap gap-1.5">
 						{#each shape.reasons as reason (reason.antipattern)}
 							<li
-								class="rounded border border-line bg-surface-alt px-2 py-0.5 text-xs"
+								class="rounded-lg border border-line bg-surface-alt px-2 py-0.5 text-xs"
 							>
 								{insightCopy(reason.antipattern).title}
 							</li>
@@ -136,7 +136,7 @@
 
 				<button
 					type="button"
-					class="mt-2 block w-full cursor-pointer rounded border border-line bg-surface-sunken px-2 py-1.5 text-left hover:border-accent"
+					class="mt-2 block w-full cursor-pointer rounded-lg border border-line bg-surface-sunken px-2 py-1.5 text-left hover:border-accent"
 					onclick={() => onSelect(shape.fingerprint)}
 					aria-pressed={active}
 				>
@@ -155,7 +155,7 @@
 				<div class="mt-2 flex flex-wrap items-center gap-2">
 					<button
 						type="button"
-						class="w-28 rounded border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
+						class="w-28 rounded-lg border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
 						onclick={async () =>
 							toClipboard(
 								`sql:${shape.fingerprint}`,
@@ -166,7 +166,7 @@
 					</button>
 					<button
 						type="button"
-						class="w-28 rounded border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
+						class="w-28 rounded-lg border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
 						onclick={async () =>
 							toClipboard(
 								`finding:${shape.fingerprint}`,

@@ -45,7 +45,7 @@
 		<div
 			class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-4"
 		>
-			<a href={resolve('/')} class="text-lg font-bold text-accent-strong">DuckWatch</a>
+			<a href={resolve('/')} class="text-lg font-bold text-ink">DuckWatch</a>
 			{#if isLoggedIn()}
 				<nav class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
 					<a href={resolve('/')} class="text-muted hover:text-accent-strong">Dashboard</a>
@@ -59,7 +59,7 @@
 					<select
 						value={getThemeMode()}
 						onchange={(event) => setThemeMode(event.currentTarget.value as ThemeMode)}
-						class="rounded border border-line bg-surface px-2 py-1 text-sm"
+						class="rounded-lg border border-line bg-surface px-2 py-1 text-sm"
 						aria-label="Theme"
 					>
 						{#each themes as option (option.value)}
@@ -74,7 +74,7 @@
 					<select
 						value={getThemeMode()}
 						onchange={(event) => setThemeMode(event.currentTarget.value as ThemeMode)}
-						class="rounded border border-line bg-surface px-2 py-1 text-sm"
+						class="rounded-lg border border-line bg-surface px-2 py-1 text-sm"
 						aria-label="Theme"
 					>
 						{#each themes as option (option.value)}

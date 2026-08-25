@@ -43,7 +43,7 @@
 {#if rows.length === 0}
 	<p class="py-6 text-center text-sm text-muted">{emptyMessage}</p>
 {:else}
-	<div class="@container overflow-x-auto rounded border border-line bg-surface">
+	<div class="@container overflow-x-auto rounded-lg border border-line bg-surface">
 		<table class="w-full table-fixed text-left text-sm">
 			<thead class="border-b border-line text-xs text-muted uppercase">
 				<tr>
@@ -87,9 +87,12 @@
 						<td class="px-3 py-2">
 							<div class="flex items-center gap-2">
 								<!-- The bar makes the ranking readable at a glance. -->
-								<div class="h-2 min-w-0 flex-1 rounded bg-line" aria-hidden="true">
+								<div
+									class="h-2 min-w-0 flex-1 rounded-full bg-line"
+									aria-hidden="true"
+								>
 									<div
-										class="h-2 rounded bg-accent"
+										class="h-2 rounded-full bg-accent"
 										style="width: {Math.max(row.cost_share * 100, 1)}%"
 									></div>
 								</div>

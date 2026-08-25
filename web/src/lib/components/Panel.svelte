@@ -19,7 +19,7 @@
 	One framed group: a titled header over its own content, so a heading and
 	the thing it describes read as a single unit rather than as neighbours.
 -->
-<section class="rounded border border-line bg-surface">
+<section class="rounded-lg border border-line bg-surface">
 	{#if title || actions}
 		<header
 			class="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3"

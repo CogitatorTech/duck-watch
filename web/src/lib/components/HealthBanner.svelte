@@ -30,7 +30,7 @@
 </script>
 
 <section
-	class="rounded border px-4 py-3 {FRAMES[notice.tone]}"
+	class="rounded-lg border px-4 py-3 {FRAMES[notice.tone]}"
 	aria-live="polite"
 	aria-label="Ingestion status"
 >

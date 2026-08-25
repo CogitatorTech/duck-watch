@@ -359,7 +359,7 @@
 	<div class="mt-4 flex flex-wrap items-center gap-2">
 		<select
 			bind:value={connectionId}
-			class="rounded border border-line bg-surface px-3 py-2 text-sm"
+			class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 			aria-label="Connection"
 		>
 			{#each connections as connection (connection.id)}
@@ -370,7 +370,7 @@
 			value={getTimeZoneMode()}
 			onchange={(event) =>
 				setTimeZoneMode(event.currentTarget.value === 'utc' ? 'utc' : 'local')}
-			class="rounded border border-line bg-surface px-3 py-2 text-sm"
+			class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 			aria-label="Time zone"
 			title="MotherDuck reports its query history in UTC"
 		>
@@ -410,7 +410,7 @@
 			<div class="flex flex-wrap items-center gap-2">
 				<select
 					bind:value={window}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="Time window"
 				>
 					{#each windows as option (option.value)}
@@ -474,7 +474,7 @@
 				/>
 				<select
 					bind:value={userFilter}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="User"
 				>
 					<option value="">All users</option>
@@ -484,7 +484,7 @@
 				</select>
 				<select
 					bind:value={typeFilter}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="Query type"
 				>
 					<option value="">All types</option>
@@ -557,7 +557,7 @@
 			{#snippet actions()}
 				<select
 					bind:value={chartMeasure}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="Chart measure"
 				>
 					<option value="latency">Queries and p95 latency</option>

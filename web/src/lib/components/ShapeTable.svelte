@@ -79,9 +79,12 @@
 						</td>
 						<td class="px-3 py-2">
 							<div class="flex items-center gap-2">
-								<div class="h-2 min-w-0 flex-1 rounded bg-line" aria-hidden="true">
+								<div
+									class="h-2 min-w-0 flex-1 rounded-full bg-line"
+									aria-hidden="true"
+								>
 									<div
-										class="h-2 rounded bg-accent"
+										class="h-2 rounded-full bg-accent"
 										style="width: {Math.max(shape.cost_share * 100, 1)}%"
 									></div>
 								</div>
@@ -97,7 +100,6 @@
 	</div>
 	<p class="mt-2 text-xs text-faint">
 		A shape groups queries that differ only in their values. Select one to narrow the tiles, the
-		chart, the cost attribution, and the query tables to its runs. This list and storage stay as
-		they are.
+		chart, the cost attribution, and the query tables to its runs.
 	</p>
 {/if}
