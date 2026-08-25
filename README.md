@@ -11,19 +11,19 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-007ec6?style=flat&labelColor=282c34&logo=open-source-initiative)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-007ec6?style=flat&labelColor=282c34&logo=docker)](https://github.com/CogitatorTech/duck-watch/pkgs/container/duck-watch-backend)
 
-An observability tool for MotherDuck
+A minimalist observability tool for MotherDuck
 
 </div>
 
 ---
 
-DuckWatch shows you what your MotherDuck account is doing and what it is costing you. That includes
+DuckWatch shows you what your MotherDuck account is doing and what it is costing you.
 
 ---
 
 ### Getting Started
 
-**1. Save the text below as `docker-compose.yml` in an empty directory.**
+##### Save the text below as `docker-compose.yml` in an empty directory.
 
 ```yaml
 services:
@@ -62,15 +62,15 @@ volumes:
     duckwatch-db:
 ```
 
-**2. Generate and write an encryption key into a `.env` file beside `docker-compose.yml`.**
+##### Generate and write an encryption key into a `.env` file beside `docker-compose.yml`.
 
 ```sh
 printf 'TOKEN_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" > .env
 ```
 
-**3. Run `docker compose up -d` in the directory where `docker-compose.yml` is, and open http://localhost:3000 in your browser.**
+##### Run `docker compose up -d` in the directory where `docker-compose.yml` is, and open http://localhost:3000 in your browser.
 
-#### DuckWatch Containers
+#### Managing DuckWatch Containers
 
 You can use docker compose commands to manage the DuckWatch containers:
 

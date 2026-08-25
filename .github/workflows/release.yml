@@ -74,8 +74,11 @@ jobs:
 
       - name: Record the Digest
         run: |
+          # The `sha256:` prefix is stripped because `upload-artifact` rejects a
+          # colon in a file name, and the merge job puts it back.
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ matrix.image }}-${{ matrix.suffix }}-${{ steps.build.outputs.digest }}"
+          digest='${{ steps.build.outputs.digest }}'
+          touch "/tmp/digests/${{ matrix.image }}-${{ matrix.suffix }}-${digest#sha256:}"
 
       - name: Upload the Digest
         uses: actions/upload-artifact@v4
@@ -132,9 +135,10 @@ jobs:
       - name: Create the Multi-architecture Tag
         working-directory: /tmp/digests
         run: |
-          # Every file here is named after the digest of one architecture.
+          # Every file here is named after the digest of one architecture, with
+          # the `sha256:` prefix stripped by the job that uploaded it.
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(for file in *; do echo "ghcr.io/${OWNER_LC}/duck-watch-${{ matrix.image }}@${file##*-}"; done)
+            $(for file in *; do echo "ghcr.io/${OWNER_LC}/duck-watch-${{ matrix.image }}@sha256:${file##*-}"; done)
 
       - name: Show What Was Published
         run: |
