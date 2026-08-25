@@ -107,6 +107,12 @@ pub struct Insights {
 /// not worth anyone's time, and a list nobody acts on is just noise.
 const MIN_COST_SHARE: f64 = 0.01;
 
+/// A share is relative, so on a quiet account a shape can be most of a period
+/// that cost a penny. Nothing under this is worth changing a query for,
+/// whatever share it holds. Ten cents is a couple of minutes of a Standard
+/// Duckling.
+const MIN_COST_USD: f64 = 0.10;
+
 /// Spilling means the Duckling ran out of memory and fell back to disk, which
 /// is worth knowing about even on a cheap query. A gigabyte leaves out the
 /// small spills that say nothing.
@@ -146,11 +152,19 @@ pub fn detect(shapes: &[ShapeStats]) -> Insights {
             raise(Antipattern::Spilling);
         }
 
-        if shape.runs >= MIN_REPEATED_RUNS && shape.cost_share >= MIN_REPEAT_COST_SHARE {
+        // Spilling is exempt from the cost floor above: running out of
+        // memory is worth knowing about even when the query is cheap,
+        // because the fix is a bigger Duckling rather than a cheaper query.
+        let worth_attention = shape.estimated_cost_usd >= MIN_COST_USD;
+
+        if worth_attention
+            && shape.runs >= MIN_REPEATED_RUNS
+            && shape.cost_share >= MIN_REPEAT_COST_SHARE
+        {
             raise(Antipattern::RepeatedRuns);
         }
 
-        if shape.cost_share >= MIN_COST_SHARE {
+        if worth_attention && shape.cost_share >= MIN_COST_SHARE {
             for antipattern in &shape.antipatterns {
                 raise(*antipattern);
             }
@@ -253,6 +267,28 @@ mod tests {
         let mut one = shape("aaaa");
         one.antipatterns = vec![Antipattern::SelectStar];
         one.cost_share = 0.001;
+
+        assert!(detect(&[one]).findings.is_empty());
+    }
+
+    #[test]
+    fn most_of_a_period_that_cost_nothing_is_not_worth_reviewing() {
+        // A share is relative. On a quiet account one shape can be 80% of a
+        // period that cost a penny, which is not a reason to change a query.
+        let mut one = shape("aaaa");
+        one.antipatterns = vec![Antipattern::SelectStar, Antipattern::NoFilter];
+        one.cost_share = 0.806;
+        one.estimated_cost_usd = 0.004;
+
+        assert!(detect(&[one]).findings.is_empty());
+    }
+
+    #[test]
+    fn repetition_also_needs_the_cost_to_be_real() {
+        let mut one = shape("aaaa");
+        one.runs = 500;
+        one.cost_share = 0.90;
+        one.estimated_cost_usd = 0.004;
 
         assert!(detect(&[one]).findings.is_empty());
     }

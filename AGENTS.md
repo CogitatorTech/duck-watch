@@ -85,8 +85,9 @@ Quick examples:
   test asserts every statement the MotherDuck client sends carries the marker.
 - Anti-pattern thresholds live in `backend/src/domain/entities/insights.rs`, each with the reason it was chosen. A
   finding is only raised once it accounts for enough of the period to be worth acting on, because roughly two thirds of
-  real shapes carry at least one flag and an ungated list is noise. Detection is a heuristic, so the interface says so
-  and shows what each finding cost rather than asserting a saving.
+  real shapes carry at least one flag and an ungated list is noise. Detection is a heuristic. The interface does not say
+  so in prose, and instead shows what each finding cost rather than asserting a saving. Every suggestion opens with
+  "Try", so the copy stays a suggestion rather than a claim.
 - Two poller passes catch up on data recorded before a feature existed: `backfill_fingerprints` and
   `backfill_antipatterns`, both bounded by `ingest_backfill_limit`. A shape examined and found clean stores an empty
   array rather than null, so it is not examined again. Either pass failing must never stall the sync.
@@ -130,7 +131,9 @@ These have each caused a wrong assumption at least once, and each is verified ag
 - Compute estimates attribute Duckling time to individual queries. MotherDuck bills Standard and larger Ducklings for
   uptime instead, so concurrent queries share compute that DuckWatch charges to each of them, and idle Duckling time
   appears nowhere. Storage bills on average monthly usage, so it is reported as a monthly run rate rather than a charge
-  for the selected range. Keep that distinction visible in the interface.
+  for the selected range. The dashboard states neither point in prose. It carries them in labels instead, through the
+  `Per month` column in the storage table, the `Est. cost` column in the shape table, and the `Estimated cost` chart
+  title. Adding the prose back is a product decision rather than a fix.
 
 ## Frontend Conventions
 
@@ -150,9 +153,12 @@ These have each caused a wrong assumption at least once, and each is verified ag
   hover-only tooltip is not recovery for truncated text.
 - Sections are framed with `Panel.svelte`. A component placed inside a panel must not draw its own frame.
 - Timestamps are absolute instants everywhere. Render them through `formatTimestamp` in
-  `web/src/lib/services/time.svelte.ts`, which names the zone and honors the local or UTC choice.
+  `web/src/lib/services/time.svelte.ts`, which names the zone and honors the local or UTC choice. The health banner is
+  the one exception, and it reports ages relative to now, because a reader there wants the gap rather than the instant.
 - Empty, loading, and error are three different states. An empty result must say whether there is no data or whether
-  the filters excluded it, and a failed load must keep the last good data on screen with a retry.
+  the filters excluded it, and a failed load must keep the last good data on screen with a retry. Each table says this
+  for itself through its own empty message. The filter controls carry no notice of their own, because one that appears
+  and disappears changes the height of the panel above every figure on the page.
 - Ingestion state qualifies every number on the page, so the health banner sits above them and says what a stale or
   failing connection means for the figures below. A healthy connection still occupies the same slot, since a banner
   that appears and disappears moves the page.
@@ -160,6 +166,12 @@ These have each caused a wrong assumption at least once, and each is verified ag
   before the cap for exactly this reason, and those totals overlap, so the interface must never add them together.
 - Copy that describes a finding stays a suggestion. No component may claim a percentage saving, because the costs
   behind it are estimates.
+- A button shows it was pressed with an inset bottom edge, which grows on hover and tightens on active, using
+  `--color-accent-shade` or the matching token for its variant. An inset shadow costs no layout, so the press reads
+  without moving anything beside it. Focus keeps a real outline rather than reusing that edge.
+- Every field in `ListOptions` must be serialized by `params` in `web/src/lib/services/api/dashboard.ts`. A field the
+  type declares and the builder skips leaves a filter that changes nothing on screen while the row still highlights,
+  which is how the shape filter went unnoticed. A test in `web/test/dashboard-api.test.ts` covers the shape field.
 
 ## Required Validation
 

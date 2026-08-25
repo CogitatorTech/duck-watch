@@ -33,7 +33,9 @@
 
 <div class="mx-auto max-w-sm">
 	<h1 class="text-3xl font-bold">Sign in</h1>
-	<p class="mt-1 text-sm text-muted">Watch your MotherDuck queries.</p>
+	<p class="mt-1 text-sm text-muted">
+		See how long your MotherDuck queries take, which ones fail, and what they cost.
+	</p>
 
 	<form class="mt-6 flex flex-col gap-3" onsubmit={submit}>
 		<Input bind:value={email} type="email" placeholder="Email" required autocomplete="email" />

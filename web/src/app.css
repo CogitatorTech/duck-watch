@@ -4,77 +4,89 @@
  * Semantic colors, so a component names the role it wants rather than a
  * palette shade, and the dark theme is one block below instead of a `dark:`
  * variant on every element.
+ *
+ * The light values use a warm near-black instead of a blue black, indigo
+ * violet for anything the reader can act on, and grays that hold a little
+ * violet so white surfaces stay warm. The dark values below are built in the
+ * same hue family.
  */
 @theme {
-	--color-canvas: #f9fafb;
+	--color-canvas: #f8f8fb;
 	--color-surface: #ffffff;
 	/* Zebra stripes behind a table row. */
-	--color-surface-alt: #f9fafb;
-	/* Expanded detail, which must not be mistaken for a striped row. */
-	--color-surface-sunken: #f1f5f9;
-	--color-line: #e5e7eb;
-	--color-line-soft: #f3f4f6;
-	--color-ink: #111827;
-	/* Every text tier clears WCAG AA (4.5:1) on surface and canvas. */
-	--color-muted: #4b5563;
-	--color-faint: #686f7c;
-	--color-accent: #8b3eff;
-	--color-accent-strong: #7320e0;
+	--color-surface-alt: #f5f4f9;
+	/* Expanded detail and the selected row. The accent tints this surface, so
+	   it cannot be mistaken for a zebra stripe. */
+	--color-surface-sunken: #ebe8fc;
+	--color-line: #cdcadb;
+	--color-line-soft: #e5e3ee;
+	--color-ink: #1d1d1d;
+	/* Every text tier clears WCAG AA (4.5:1) on all four surfaces above. The
+	   tinted surface is the tightest of them. */
+	--color-muted: #5b5869;
+	--color-faint: #6a6779;
+	--color-accent: #5a3de6;
+	--color-accent-strong: #4d34c6;
 	--color-accent-contrast: #ffffff;
-	--color-neutral-button: #e5e7eb;
-	--color-danger: #d32020;
-	--color-danger-strong: #b91c1c;
-	--color-danger-ink: #b91c1c;
-	--color-danger-line: #fecaca;
-	--color-danger-surface: #fef2f2;
+	/* The pressed bottom edge on a button. It is always darker than the
+	   fill. */
+	--color-accent-shade: #3b2d81;
+	--color-neutral-button: #eeedf3;
+	--color-danger: #cd1f1f;
+	--color-danger-strong: #b4161f;
+	--color-danger-ink: #b01b1b;
+	--color-danger-line: #f3c9cc;
+	--color-danger-surface: #fdf2f3;
 	/* Something needs attention but nothing is broken, such as ingestion
 	   falling behind. */
 	--color-warn-ink: #8a5300;
-	--color-warn-line: #fcd34d;
-	--color-warn-surface: #fffbeb;
+	--color-warn-line: #e8b44a;
+	--color-warn-surface: #fdf7e8;
 	/* A state that is working as intended, such as ingestion keeping up. */
-	--color-ok-ink: #15803d;
+	--color-ok-ink: #157849;
 	/* SQL highlighting in the expanded query box. */
-	--color-sql-keyword: #7320e0;
-	--color-sql-string: #047857;
-	--color-sql-number: #0369a1;
-	--color-sql-comment: #686f7c;
-	/* Latency chart marks. */
-	--color-chart-bar: #ddd0ff;
-	--color-chart-bar-failed: #fca5a5;
-	--color-chart-line: #7320e0;
+	--color-sql-keyword: #4d34c6;
+	--color-sql-string: #0b7266;
+	--color-sql-number: #2151c7;
+	--color-sql-comment: #6a6779;
+	/* Latency chart marks. Failed bars differ from ordinary ones in lightness
+	   as well as hue, so the difference survives without color. */
+	--color-chart-bar: #ded8fa;
+	--color-chart-bar-failed: #e88f8f;
+	--color-chart-line: #4d34c6;
 }
 
 [data-theme='dark'] {
-	--color-canvas: #00002b;
-	--color-surface: #232350;
-	--color-surface-alt: #2c2c64;
-	--color-surface-sunken: #17173c;
-	--color-line: #3b3b6b;
-	--color-line-soft: #2f2f5c;
-	--color-ink: #e2e8f0;
-	--color-muted: #cbd5e1;
-	--color-faint: #94a3b8;
-	--color-accent: #b380ff;
-	--color-accent-strong: #c9a6ff;
-	--color-accent-contrast: #00002b;
-	--color-neutral-button: #3b3b6b;
-	--color-danger: #f87171;
-	--color-danger-strong: #ef4444;
+	--color-canvas: #131219;
+	--color-surface: #1b1a23;
+	--color-surface-alt: #23222d;
+	--color-surface-sunken: #2a2540;
+	--color-line: #34323f;
+	--color-line-soft: #292833;
+	--color-ink: #ecebf2;
+	--color-muted: #b3b0c2;
+	--color-faint: #928fa3;
+	--color-accent: #a48bff;
+	--color-accent-strong: #c0aaff;
+	--color-accent-contrast: #16151c;
+	--color-accent-shade: #6b4fd0;
+	--color-neutral-button: #2e2c3a;
+	--color-danger: #f27272;
+	--color-danger-strong: #f79494;
 	--color-danger-ink: #fca5a5;
-	--color-danger-line: #7f1d1d;
-	--color-danger-surface: #341c1c;
-	--color-warn-ink: #fcd34d;
-	--color-warn-line: #78350f;
-	--color-warn-surface: #3a2e12;
-	--color-ok-ink: #4ade80;
-	--color-sql-keyword: #c9a6ff;
-	--color-sql-string: #6ee7b7;
-	--color-sql-number: #7dd3fc;
-	--color-sql-comment: #94a3b8;
-	--color-chart-bar: #5b3a9e;
-	--color-chart-bar-failed: #b91c1c;
-	--color-chart-line: #c9a6ff;
+	--color-danger-line: #6e2626;
+	--color-danger-surface: #2e1c20;
+	--color-warn-ink: #f5c24e;
+	--color-warn-line: #6b4a12;
+	--color-warn-surface: #2c2413;
+	--color-ok-ink: #5cd99b;
+	--color-sql-keyword: #c0aaff;
+	--color-sql-string: #6ee7c0;
+	--color-sql-number: #86c7ff;
+	--color-sql-comment: #928fa3;
+	--color-chart-bar: #5b4a9e;
+	--color-chart-bar-failed: #c46560;
+	--color-chart-line: #c0aaff;
 
 	/* Native widgets: scroll bars, date pickers, and select menus. */
 	color-scheme: dark;

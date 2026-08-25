@@ -342,68 +342,81 @@
 	);
 </script>
 
-<h1 class="text-3xl font-bold">Dashboard</h1>
+<!--
+	The header already says where the reader is, so the heading is kept for
+	assistive technology and the banner takes the top of the page.
+-->
+<h1 class="sr-only">Dashboard</h1>
 
 {#if selectedConnection}
-	<div class="mt-4">
-		<HealthBanner connection={selectedConnection} />
-	</div>
+	<HealthBanner connection={selectedConnection} />
 {/if}
 
 {#if data.connections.length > 0}
-	<div class="mt-4">
-		<Panel>
+	<!--
+		Scope and an action rather than filters: which account is being read,
+		on which clock, and a way to refetch now. These stay usable while the
+		first sync is still running, so they sit outside the filters below.
+	-->
+	<div class="mt-4 flex flex-wrap items-center gap-2">
+		<select
+			bind:value={connectionId}
+			class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
+			aria-label="Connection"
+		>
+			{#each connections as connection (connection.id)}
+				<option value={connection.id}>{connection.name}</option>
+			{/each}
+		</select>
+		<select
+			value={getTimeZoneMode()}
+			onchange={(event) =>
+				setTimeZoneMode(event.currentTarget.value === 'utc' ? 'utc' : 'local')}
+			class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
+			aria-label="Time zone"
+			title="MotherDuck reports its query history in UTC"
+		>
+			<option value="local">{localTimeZoneName()}</option>
+			<option value="utc">UTC</option>
+		</select>
+		<Button variant="secondary" size="sm" disabled={loading} onclick={() => refresh(false)}>
+			Refresh
+		</Button>
+		<span class="w-20 text-xs text-muted" aria-live="polite">
+			{loading ? 'Updating...' : ''}
+		</span>
+	</div>
+{/if}
+
+{#if data.connections.length === 0}
+	<p class="mt-12 text-center text-muted">
+		Connect a MotherDuck account first on the
+		<a href={resolve('/connections')} class="text-accent-strong hover:underline"
+			>connections page</a
+		>.
+	</p>
+{:else if waitingForFirstSync}
+	<p class="mt-12 text-center text-muted">
+		The first sync usually lands within a minute. This page refreshes itself.
+	</p>
+{:else}
+	<div class="mt-6">
+		<Panel title="Filters">
+			<!--
+				The time range is a filter like any other, so it lives here
+				rather than in a panel of its own.
+			-->
 			<div class="flex flex-wrap items-center gap-2">
 				<select
-					bind:value={connectionId}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
-					aria-label="Connection"
-				>
-					{#each connections as connection (connection.id)}
-						<option value={connection.id}>{connection.name}</option>
-					{/each}
-				</select>
-				<select
 					bind:value={window}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="Time window"
 				>
 					{#each windows as option (option.value)}
 						<option value={option.value}>{option.label}</option>
 					{/each}
 				</select>
-				<Button
-					variant="secondary"
-					size="sm"
-					disabled={loading}
-					onclick={() => refresh(false)}
-				>
-					Refresh
-				</Button>
-				<span class="w-20 text-xs text-muted" aria-live="polite">
-					{loading ? 'Updating...' : ''}
-				</span>
 				<label class="flex items-center gap-1.5 text-sm text-muted">
-					<input type="checkbox" bind:checked={showInternal} class="accent-accent" />
-					Show DuckWatch queries
-				</label>
-				<select
-					value={getTimeZoneMode()}
-					onchange={(event) =>
-						setTimeZoneMode(event.currentTarget.value === 'utc' ? 'utc' : 'local')}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
-					aria-label="Time zone"
-					title="MotherDuck reports its query history in UTC"
-				>
-					<option value="local">{localTimeZoneName()}</option>
-					<option value="utc">UTC</option>
-				</select>
-			</div>
-
-			<div
-				class="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3 text-sm text-muted"
-			>
-				<label class="flex items-center gap-1.5">
 					From
 					<Input
 						bind:value={fromInput}
@@ -414,7 +427,7 @@
 						aria-label="Range start date and time"
 					/>
 				</label>
-				<label class="flex items-center gap-1.5">
+				<label class="flex items-center gap-1.5 text-sm text-muted">
 					To
 					<Input
 						bind:value={toInput}
@@ -434,11 +447,9 @@
 					Use preset window
 				</Button>
 				<!--
-					The zone never changes, so it never disappears. Only the state
-					sentence beside it swaps, and both trail the controls so their
+					Only the sentence swaps, and it trails the controls so its
 					length cannot move anything.
 				-->
-				<span class="text-xs text-faint">Times in {localTimeZoneName()}.</span>
 				<span class="text-xs text-faint">
 					{#if rangeActive}
 						Custom range in use; the preset dropdown is ignored.
@@ -449,28 +460,8 @@
 					{/if}
 				</span>
 			</div>
-		</Panel>
-	</div>
-{/if}
 
-{#if data.connections.length === 0}
-	<p class="mt-12 text-center text-muted">
-		Connect a MotherDuck account first on the
-		<a href={resolve('/connections')} class="text-accent-strong hover:underline"
-			>connections page</a
-		>.
-	</p>
-{:else if waitingForFirstSync}
-	<p class="mt-12 text-center text-muted">
-		The first sync usually lands within a minute. This page refreshes itself.
-	</p>
-{:else}
-	<div class="mt-6">
-		<Panel
-			title="Filters"
-			description="These narrow the tiles, the chart, the cost attribution, and the query tables. Storage shows what you hold now, so filters do not change it."
-		>
-			<div class="flex flex-wrap items-center gap-2">
+			<div class="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
 				<Input
 					bind:value={searchInput}
 					type="search"
@@ -480,7 +471,7 @@
 				/>
 				<select
 					bind:value={userFilter}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="User"
 				>
 					<option value="">All users</option>
@@ -490,7 +481,7 @@
 				</select>
 				<select
 					bind:value={typeFilter}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="Query type"
 				>
 					<option value="">All types</option>
@@ -512,6 +503,10 @@
 					/>
 					s
 				</label>
+				<label class="flex items-center gap-1.5 text-sm text-muted">
+					<input type="checkbox" bind:checked={showInternal} class="accent-accent" />
+					Show DuckWatch queries
+				</label>
 				<Button
 					variant="secondary"
 					size="sm"
@@ -521,13 +516,6 @@
 					Clear filters
 				</Button>
 			</div>
-
-			<p class="mt-3 min-h-5 border-t border-line pt-3 text-sm text-muted" aria-live="polite">
-				{#if filtersActive && summary?.query_count === 0}
-					No queries match these filters. The connection has data in this range, so try
-					widening or clearing them.
-				{/if}
-			</p>
 		</Panel>
 	</div>
 
@@ -559,7 +547,7 @@
 			{#snippet actions()}
 				<select
 					bind:value={chartMeasure}
-					class="rounded border border-line bg-surface px-3 py-2 text-sm"
+					class="rounded-lg border border-line bg-surface px-3 py-2 text-sm"
 					aria-label="Chart measure"
 				>
 					<option value="latency">Queries and p95 latency</option>
@@ -581,10 +569,7 @@
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="Cost attribution"
-			description="Worked out from Duckling size and run time, next to the same length of time before it. This divides up compute time; it is not a copy of your MotherDuck bill."
-		>
+		<Panel title="Cost attribution">
 			<div class="grid gap-6 xl:grid-cols-2">
 				<div>
 					<h3 class="mb-2 text-sm font-medium text-muted">By user</h3>
@@ -613,24 +598,20 @@
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="Storage"
-			description="What the account holds right now, priced for the connection's region. MotherDuck charges on the average across a month, so this is a monthly rate, not a charge for the range you picked."
-		>
+		<Panel title="Storage">
 			<StorageTable rows={storage?.databases ?? []} />
 			{#if storage?.computed_at}
 				<p class="mt-2 text-xs text-faint">
-					MotherDuck computed these figures {formatTimestamp(storage.computed_at)}.
+					These figures were computed by MotherDuck on {formatTimestamp(
+						storage.computed_at,
+					)}.
 				</p>
 			{/if}
 		</Panel>
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="Query shapes"
-			description="Queries that differ only in their values are counted as one, so a query that runs nightly appears once with its total cost."
-		>
+		<Panel title="Query shapes">
 			<ShapeTable
 				{shapes}
 				selected={shapeFilter}
@@ -643,10 +624,7 @@
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="What to review"
-			description="Query patterns that cost more than they need to, found by checking the query text and how its runs behaved. Each one shows what it actually cost, so you can judge whether it is worth changing."
-		>
+		<Panel title="What to review">
 			<InsightList
 				connectionId={connectionId ?? ''}
 				{insights}

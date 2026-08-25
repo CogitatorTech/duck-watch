@@ -22,7 +22,7 @@ describe('layoutChart', () => {
 	it('returns an empty layout for no buckets', () => {
 		const layout = layoutChart([], 100, 50);
 		expect(layout.bars).toEqual([]);
-		expect(layout.p95Line).toEqual([]);
+		expect(layout.p95Segments).toEqual([]);
 	});
 
 	it('scales the tallest bar to the full height', () => {
@@ -52,11 +52,38 @@ describe('layoutChart', () => {
 		expect(layout.maxValue).toBe(0);
 	});
 
-	it('skips missing p95 values in the line', () => {
+	it('breaks the p95 line where a bucket has no queries', () => {
+		// Joining across the gap would draw a latency trend through a period
+		// when nothing ran.
 		const layout = layoutChart([bucket(1, 10), bucket(1, null), bucket(1, 20)], 90, 50);
-		expect(layout.p95Line.length).toBe(2);
+
+		expect(layout.p95Segments).toHaveLength(2);
+		expect(layout.p95Segments[0]).toHaveLength(1);
+		expect(layout.p95Segments[1]).toHaveLength(1);
 		// The highest p95 sits at the top of the canvas.
-		expect(layout.p95Line[1].y).toBe(0);
+		expect(layout.p95Segments[1][0].y).toBe(0);
+	});
+
+	it('keeps consecutive measured buckets in one segment', () => {
+		const layout = layoutChart([bucket(1, 10), bucket(1, 20), bucket(1, 15)], 90, 50);
+		expect(layout.p95Segments).toHaveLength(1);
+		expect(layout.p95Segments[0]).toHaveLength(3);
+	});
+
+	it('counts how many buckets had queries', () => {
+		// A chart of mostly empty slots reads as broken, so the caption says
+		// how quiet the period was.
+		const layout = layoutChart(
+			[bucket(0, null), bucket(0, null), bucket(12, 6900), bucket(0, null)],
+			100,
+			50,
+		);
+		expect(layout.populatedBuckets).toBe(1);
+	});
+
+	it('reports nothing populated for an empty range', () => {
+		expect(layoutChart([], 100, 50).populatedBuckets).toBe(0);
+		expect(layoutChart([], 100, 50).p95Segments).toEqual([]);
 	});
 });
 

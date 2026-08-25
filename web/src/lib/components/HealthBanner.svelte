@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { ConnectionStatus } from '$lib/services/api/connections';
 	import { describeHealth } from '$lib/services/health';
-	import { formatTimestamp } from '$lib/services/time.svelte';
 
 	let { connection }: { connection: ConnectionStatus } = $props();
 
@@ -30,7 +29,7 @@
 </script>
 
 <section
-	class="rounded border px-4 py-3 {FRAMES[notice.tone]}"
+	class="rounded-lg border px-4 py-3 {FRAMES[notice.tone]}"
 	aria-live="polite"
 	aria-label="Ingestion status"
 >
@@ -58,14 +57,6 @@
 			]}"
 		>
 			{notice.error}
-		</p>
-	{/if}
-
-	{#if connection.last_synced_at}
-		<p class="mt-1 text-xs text-faint">
-			Last attempt {formatTimestamp(connection.last_synced_at)}{connection.last_success_at
-				? `, last success ${formatTimestamp(connection.last_success_at)}`
-				: ''}.
 		</p>
 	{/if}
 </section>

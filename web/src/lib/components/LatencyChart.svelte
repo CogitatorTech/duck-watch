@@ -141,12 +141,29 @@
 						</rect>
 					{/if}
 				{/each}
-				{#if measure === 'latency' && layout.p95Line.length > 1}
-					<polyline
-						points={layout.p95Line.map((point) => `${point.x},${point.y}`).join(' ')}
-						class="fill-none stroke-chart-line stroke-2"
-						vector-effect="non-scaling-stroke"
-					/>
+				{#if measure === 'latency'}
+					<!--
+						One line per run of measured buckets. A single measured
+						bucket gets a dot, because a one point line draws
+						nothing and the reader would see no p95 at all.
+					-->
+					{#each layout.p95Segments as segment, index (index)}
+						{#if segment.length > 1}
+							<polyline
+								points={segment.map((point) => `${point.x},${point.y}`).join(' ')}
+								class="fill-none stroke-chart-line stroke-2"
+								vector-effect="non-scaling-stroke"
+							/>
+						{:else}
+							<circle
+								cx={segment[0].x}
+								cy={segment[0].y}
+								r="3"
+								class="fill-chart-line"
+								vector-effect="non-scaling-stroke"
+							/>
+						{/if}
+					{/each}
 				{/if}
 			</svg>
 			<div class="mt-1 flex justify-between text-xs text-faint">
@@ -203,7 +220,12 @@
 				p95 latency on the right axis.
 			</span>
 		{/if}
-		<span>{formatBucketWidth(bucketMs)}</span>
+		<span>
+			{#if layout.populatedBuckets > 0 && layout.populatedBuckets < buckets.length / 4}
+				Queries ran in {layout.populatedBuckets} of {buckets.length} buckets.
+			{/if}
+			{formatBucketWidth(bucketMs)}
+		</span>
 	</div>
 	{#if onSelect}
 		<p class="mt-1 text-xs text-faint">Select a bar to zoom the range into that bucket.</p>

@@ -2,7 +2,13 @@ import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import { endSession, getToken } from '$lib/services/session.svelte';
 
-const apiUrl = import.meta.env.VITE_API_URL.replace(/\/\s*$/, '');
+/*
+ * Falls back to a path on this origin, which the web container's nginx proxies
+ * to the backend. A published image then needs no build-time URL and runs
+ * wherever it is deployed. The development server has no proxy, so it sets
+ * `VITE_API_URL` in `web/.env` and that wins.
+ */
+const apiUrl = (import.meta.env.VITE_API_URL ?? '/api/v1').replace(/\/\s*$/, '');
 
 export class ApiError extends Error {
 	constructor(

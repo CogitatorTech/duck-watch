@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getFilterValues } from '../src/lib/services/api/dashboard';
+import { getFilterValues, getSummary } from '../src/lib/services/api/dashboard';
 
 /** Captures the URL a client builds, without making a request. */
 const captureUrl = () => {
@@ -55,5 +55,25 @@ describe('getFilterValues', () => {
 		for (const excluded of ['user=', 'type=', 'q=', 'min_ms=']) {
 			expect(calls[0]).not.toContain(excluded);
 		}
+	});
+});
+
+describe('the shared filter query', () => {
+	it('sends the selected query shape', async () => {
+		const { calls, fetcher } = captureUrl();
+
+		await getSummary('c1', '24h', { shape: 'abc123' }, fetcher);
+
+		// The backend reads this as the fingerprint filter. Without it a
+		// selected shape changes nothing on the page.
+		expect(calls[0]).toContain('shape=abc123');
+	});
+
+	it('leaves the shape out when nothing is selected', async () => {
+		const { calls, fetcher } = captureUrl();
+
+		await getSummary('c1', '24h', {}, fetcher);
+
+		expect(calls[0]).not.toContain('shape=');
 	});
 });

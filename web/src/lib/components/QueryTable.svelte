@@ -157,7 +157,7 @@
 							>
 							{#if event.is_internal}
 								<span
-									class="ml-1 rounded bg-neutral-button px-1 text-xs text-muted"
+									class="ml-1 rounded-full bg-neutral-button px-1.5 text-xs text-muted"
 								>
 									duckwatch
 								</span>
@@ -191,7 +191,7 @@
 										{fullEvent ? 'Full query' : 'Loading the full query...'}
 									</span>
 									<button
-										class="w-28 rounded border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
+										class="w-28 rounded-lg border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
 										onclick={(clickEvent) => {
 											clickEvent.stopPropagation();
 											copyQuery(detail.query_text);
@@ -201,12 +201,12 @@
 									</button>
 								</div>
 								<pre
-									class="max-h-112 overflow-auto rounded border border-line bg-surface p-3 text-xs [overflow-wrap:anywhere] whitespace-pre-wrap select-text"><SqlText
+									class="max-h-112 overflow-auto rounded-lg border border-line bg-surface p-3 text-xs [overflow-wrap:anywhere] whitespace-pre-wrap select-text"><SqlText
 										sql={detail.query_text}
 									/></pre>
 								{#if detail.error_message}
 									<div
-										class="mt-2 rounded border border-danger-line bg-danger-surface p-3 text-xs text-danger-ink"
+										class="mt-2 rounded-lg border border-danger-line bg-danger-surface p-3 text-xs text-danger-ink"
 									>
 										<p class="font-medium">{detail.error_type ?? 'Error'}</p>
 										<p class="mt-1 whitespace-pre-wrap select-text">

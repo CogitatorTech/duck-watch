@@ -3,6 +3,8 @@ import type { Antipattern, Insight } from '../src/lib/services/api/dashboard';
 import {
 	STATEMENT_LIMIT,
 	findingAsText,
+	groupByShape,
+	shapeEvidence,
 	insightCopy,
 	insightEvidence,
 	isStatementCut,
@@ -101,16 +103,79 @@ describe('statementForCopy', () => {
 	});
 });
 
+describe('groupByShape', () => {
+	it('gathers every reason for one query into a single entry', () => {
+		// The panel showed the same statement three times over, once per
+		// reason, with its SQL and buttons repeated each time.
+		const grouped = groupByShape([
+			insight('no_filter', { fingerprint: 'aaaa' }),
+			insight('select_star', { fingerprint: 'aaaa' }),
+			insight('order_without_limit', { fingerprint: 'bbbb' }),
+		]);
+
+		expect(grouped).toHaveLength(2);
+		expect(grouped[0].fingerprint).toBe('aaaa');
+		expect(grouped[0].reasons.map((r) => r.antipattern)).toEqual(['no_filter', 'select_star']);
+		expect(grouped[1].reasons).toHaveLength(1);
+	});
+
+	it('keeps the order the backend chose', () => {
+		// Findings arrive most expensive first, and a shape belongs where its
+		// dearest finding put it.
+		const grouped = groupByShape([
+			insight('spilling', { fingerprint: 'dear', estimated_cost_usd: 40 }),
+			insight('select_star', { fingerprint: 'cheap', estimated_cost_usd: 1 }),
+			insight('no_filter', { fingerprint: 'dear', estimated_cost_usd: 40 }),
+		]);
+
+		expect(grouped.map((g) => g.fingerprint)).toEqual(['dear', 'cheap']);
+		expect(grouped[0].reasons).toHaveLength(2);
+	});
+
+	it('returns nothing for nothing', () => {
+		expect(groupByShape([])).toEqual([]);
+	});
+});
+
+describe('shapeEvidence', () => {
+	it('states the runs once, however many reasons the query raised', () => {
+		// Runs belong to the query, not to each reason, so putting them in
+		// every chip repeated the same number three times on one card.
+		const shape = groupByShape([
+			insight('no_filter', { runs: 12 }),
+			insight('select_star', { runs: 12 }),
+			insight('cross_join', { runs: 12 }),
+		])[0];
+
+		expect(shapeEvidence(shape)).toBe('12 runs');
+	});
+
+	it('adds the spilled volume when there is any', () => {
+		const shape = groupByShape([
+			insight('spilling', { runs: 9, bytes_spilled: 1_101_100_000_000 }),
+		])[0];
+
+		expect(shapeEvidence(shape)).toContain('9 runs');
+		expect(shapeEvidence(shape)).toMatch(/TB|GB/);
+	});
+
+	it('keeps the unit singular for a single run', () => {
+		expect(shapeEvidence(groupByShape([insight('select_star', { runs: 1 })])[0])).toBe('1 run');
+	});
+});
+
 describe('findingAsText', () => {
 	const text = () =>
 		findingAsText(
-			insight('spilling', {
-				bytes_spilled: 6_800_000_000,
-				runs: 138,
-				cost_share: 0.182,
-				example_sql: 'select * from big',
-				fingerprint: 'cd0f03a5054bb680',
-			}),
+			groupByShape([
+				insight('spilling', {
+					bytes_spilled: 6_800_000_000,
+					runs: 138,
+					cost_share: 0.182,
+					example_sql: 'select * from big',
+					fingerprint: 'cd0f03a5054bb680',
+				}),
+			])[0],
 			'$12.34',
 			'select * from big',
 		);
@@ -128,7 +193,7 @@ describe('findingAsText', () => {
 	it('gives the reason and the suggestion, not just the numbers', () => {
 		const out = text();
 		expect(out).toContain('Why:');
-		expect(out).toContain('Try:');
+		expect(out).toContain(insightCopy('spilling').suggestion);
 	});
 
 	it('puts the statement last, after a blank line', () => {
@@ -142,7 +207,7 @@ describe('findingAsText', () => {
 		// Only reached when the read for the whole statement failed and the
 		// listing's cut copy is all there is.
 		const out = findingAsText(
-			insight('select_star'),
+			groupByShape([insight('select_star')])[0],
 			'$1.00',
 			'x'.repeat(STATEMENT_LIMIT) + '...',
 		);
@@ -151,7 +216,7 @@ describe('findingAsText', () => {
 
 	it('uses the statement it is given, not the one in the listing', () => {
 		const out = findingAsText(
-			insight('select_star', { example_sql: 'select * from cut...' }),
+			groupByShape([insight('select_star', { example_sql: 'select * from cut...' })])[0],
 			'$1.00',
 			'select a, b from whole',
 		);
