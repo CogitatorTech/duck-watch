@@ -14,19 +14,20 @@ A minimalist observability tool for MotherDuck
 ---
 
 DuckWatch shows you what your MotherDuck account is doing and what it is costing you.
+<br>
 
 <div align="center">
-  <img alt="Stats" src="docs/assets/screenshots/1.png" width="100%">
+  <img alt="Stats" src="docs/assets/screenshots/1.png" width="80%">
 </div>
 
 <details>
 <summary>Show more screenshots</summary>
 
 <div align="center">
-  <img alt="Shot 1" src="docs/assets/screenshots/2.png" width="100%">
-  <img alt="Shot 2" src="docs/assets/screenshots/3.png" width="100%">
-  <img alt="Shot 3" src="docs/assets/screenshots/4.png" width="100%">
-  <img alt="Shot 4" src="docs/assets/screenshots/5.png" width="100%">
+  <img alt="Shot 1" src="docs/assets/screenshots/2.png" width="80%">
+  <img alt="Shot 2" src="docs/assets/screenshots/3.png" width="80%">
+  <img alt="Shot 3" src="docs/assets/screenshots/4.png" width="80%">
+  <img alt="Shot 4" src="docs/assets/screenshots/5.png" width="80%">
 </div>
 
 </details>
@@ -35,7 +36,16 @@ DuckWatch shows you what your MotherDuck account is doing and what it is costing
 
 ### Getting Started
 
-##### Save the text below as `docker-compose.yml` in an empty directory.
+> [!IMPORTANT]
+> To run and use DuckWatch described here, you need to have Docker installed on your machine.
+> Additionally, you need a MotherDuck account on the Business or Enterprise plan, and a read-only service token
+> created under a role with the view query history permission.
+> The Admin and Builder preset roles include that permission by default.
+> The Lite plan does not include query history, so DuckWatch cannot read anything on it.
+
+##### Create a `docker-compose.yml` file
+
+Save the text below as `docker-compose.yml` in an empty directory.
 
 ```yaml
 services:
@@ -74,13 +84,17 @@ volumes:
     duckwatch-db:
 ```
 
-##### Generate and write an encryption key into a `.env` file beside `docker-compose.yml`.
+##### Encryption Key 
+
+Generate and write an encryption key into a `.env` file beside `docker-compose.yml`.
 
 ```sh
 printf 'TOKEN_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" > .env
 ```
 
-##### Run `docker compose up -d` in the directory where `docker-compose.yml` is, and open http://localhost:3000 in your browser.
+##### Starting DuckWatch
+
+Run `docker compose up -d` in the directory where `docker-compose.yml` is, and open http://localhost:3000 in your browser.
 
 #### Managing DuckWatch Containers
 
