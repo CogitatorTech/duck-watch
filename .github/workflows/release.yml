@@ -18,9 +18,6 @@ jobs:
     uses: ./.github/workflows/tests.yml
 
   build-images:
-    # One job per image and architecture. The backend compiles libduckdb from
-    # C++ source, which takes about twenty minutes natively and far longer
-    # under emulation, so arm64 gets its own arm runner rather than QEMU.
     name: Build ${{ matrix.image }} for ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     needs: call-tests
@@ -63,8 +60,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Each architecture is pushed by digest only. The job below joins them
-      # into one tag, so `docker pull` picks the right one on its own.
       - name: Build and Push by Digest
         id: build
         uses: docker/build-push-action@v7
