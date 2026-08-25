@@ -1,8 +1,4 @@
 <div align="center">
-  <picture>
-    <img alt="DuckWatch Logo" src="logo.svg" width="120" height="120">
-  </picture>
-<br>
 
 <h2>DuckWatch</h2>
 
