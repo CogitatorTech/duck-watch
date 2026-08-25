@@ -17,19 +17,69 @@ An observability tool for MotherDuck
 
 ---
 
-DuckWatch shows you what your MotherDuck account is doing and what it is costing you.
+DuckWatch shows you what your MotherDuck account is doing and what it is costing you. That includes
 
 ---
 
-### Quickstart
+### Getting Started
 
-To be added.
+**1. Save the text below as `docker-compose.yml` in an empty directory.**
 
----
+```yaml
+services:
+    db:
+        image: postgres:18-alpine
+        environment:
+            POSTGRES_PASSWORD: postgres
+        volumes:
+            - duckwatch-db:/var/lib/postgresql
+        healthcheck:
+            test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+        restart: unless-stopped
 
-### Documentation
+    backend:
+        image: ghcr.io/cogitatortech/duck-watch-backend:latest
+        environment:
+            DATABASE_URL: postgres://postgres:postgres@db:5432/postgres?sslmode=disable
+            TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?run the key command below first}
+        depends_on:
+            db:
+                condition: service_healthy
+        restart: unless-stopped
 
-To be added.
+    web:
+        image: ghcr.io/cogitatortech/duck-watch-web:latest
+        ports:
+            - "3000:80"
+        depends_on:
+            - backend
+        restart: unless-stopped
+
+volumes:
+    duckwatch-db:
+```
+
+**2. Generate and write an encryption key into a `.env` file beside `docker-compose.yml`.**
+
+```sh
+printf 'TOKEN_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" > .env
+```
+
+**3. Run `docker compose up -d` in the directory where `docker-compose.yml` is, and open http://localhost:3000 in your browser.**
+
+#### DuckWatch Containers
+
+You can use docker compose commands to manage the DuckWatch containers:
+
+```sh
+docker compose up -d      # Start DuckWatch
+docker compose stop       # Stop DuckWatch (data is kept)
+docker compose down -v    # Remove everything, including the database
+docker compose logs -f    # Check the log stream
+```
 
 ---
 

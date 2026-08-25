@@ -1,7 +1,8 @@
 // See https://svelte.dev/docs/kit/types#app for what these interfaces do.
 declare global {
 	interface ImportMetaEnv {
-		VITE_API_URL: string;
+		/** Absent in a container build, where the API shares the origin. */
+		VITE_API_URL?: string;
 	}
 	namespace App {
 		// interface Error {}
