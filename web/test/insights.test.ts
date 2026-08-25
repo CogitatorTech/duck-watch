@@ -193,7 +193,7 @@ describe('findingAsText', () => {
 	it('gives the reason and the suggestion, not just the numbers', () => {
 		const out = text();
 		expect(out).toContain('Why:');
-		expect(out).toContain('Try:');
+		expect(out).toContain(insightCopy('spilling').suggestion);
 	});
 
 	it('puts the statement last, after a blank line', () => {

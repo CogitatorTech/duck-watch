@@ -15,39 +15,39 @@ const COPY: Record<Antipattern, InsightCopy> = {
 		title: 'Reads every column',
 		explanation:
 			'MotherDuck stores data in columns and reads only the ones a query names. Using select * reads them all.',
-		suggestion: 'Listing only the columns you use will read less data.',
+		suggestion: 'Try listing only the columns you use, so the query reads less data.',
 	},
 	cross_join: {
 		title: 'Join without a condition',
 		explanation:
 			'A join with no condition pairs every row on one side with every row on the other. Two tables of a thousand rows each make a million.',
-		suggestion: 'Check whether a join condition was meant to be here.',
+		suggestion: 'Try checking whether a join condition was meant to be here.',
 	},
 	no_filter: {
 		title: 'Scans the whole table',
 		explanation:
 			'The query reads a table with no where clause, so it reads every row. That gets slower as the table grows.',
 		suggestion:
-			'Adding a where clause, on a date column for example, means there is less to read.',
+			'Try adding a where clause, on a date column for example, so there is less to read.',
 	},
 	order_without_limit: {
 		title: 'Sorts without a limit',
 		explanation:
 			'Sorting with no limit puts the whole result in order, including the rows nobody looks at.',
-		suggestion: 'If you only need the top rows, add a limit.',
+		suggestion: 'Try adding a limit if you only need the top rows.',
 	},
 	spilling: {
 		title: 'Ran out of memory',
 		explanation:
 			'The Duckling ran out of memory, so these runs wrote working data to disk. Disk is slower than memory.',
 		suggestion:
-			'A bigger Duckling size, or a query that reads less, would keep the work in memory.',
+			'Try a bigger Duckling size, or a query that reads less, to keep the work in memory.',
 	},
 	repeated_runs: {
 		title: 'Run repeatedly',
 		explanation: 'The same query ran many times, and each run paid for the same work again.',
 		suggestion:
-			'If the data changes less often than the query runs, saving the result to a table would avoid repeating the work.',
+			'Try saving the result to a table if the data changes less often than the query runs.',
 	},
 };
 
@@ -145,7 +145,7 @@ export const groupByShape = (findings: Insight[]): ShapeFindings[] => {
 export const shapeEvidence = (shape: ShapeFindings): string => {
 	const runs = `${shape.runs} ${shape.runs === 1 ? 'run' : 'runs'}`;
 	return shape.bytes_spilled > 0
-		? `${runs} · ${formatBytes(shape.bytes_spilled)} written to disk`
+		? `${runs}, ${formatBytes(shape.bytes_spilled)} written to disk`
 		: runs;
 };
 
@@ -169,7 +169,7 @@ export const findingAsText = (shape: ShapeFindings, cost: string, statement: str
 		lines.push(`${copy.title}`);
 		lines.push(`  Evidence: ${insightEvidence(reason)}`);
 		lines.push(`  Why: ${copy.explanation}`);
-		lines.push(`  Try: ${copy.suggestion}`);
+		lines.push(`  ${copy.suggestion}`);
 		lines.push('');
 	}
 	lines.push(statementForCopy(statement));

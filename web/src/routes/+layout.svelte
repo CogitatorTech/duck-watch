@@ -70,7 +70,9 @@
 				</nav>
 			{:else}
 				<div class="flex items-center gap-3">
-					<span class="text-sm text-muted">MotherDuck observability</span>
+					<span class="text-sm text-muted"
+						>Latency, failures, and cost for MotherDuck</span
+					>
 					<select
 						value={getThemeMode()}
 						onchange={(event) => setThemeMode(event.currentTarget.value as ThemeMode)}

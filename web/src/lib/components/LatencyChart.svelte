@@ -222,7 +222,7 @@
 		{/if}
 		<span>
 			{#if layout.populatedBuckets > 0 && layout.populatedBuckets < buckets.length / 4}
-				Queries ran in {layout.populatedBuckets} of {buckets.length} buckets &middot;
+				Queries ran in {layout.populatedBuckets} of {buckets.length} buckets.
 			{/if}
 			{formatBucketWidth(bucketMs)}
 		</span>

@@ -118,6 +118,8 @@
 		</table>
 	</div>
 	<p class="mt-1 text-xs text-faint">
-		Total run time attributed: {formatMs(rows.reduce((sum, row) => sum + row.total_ms, 0))}.
+		The total run time attributed is {formatMs(
+			rows.reduce((sum, row) => sum + row.total_ms, 0),
+		)}.
 	</p>
 {/if}

@@ -85,15 +85,14 @@
 				<p>
 					<span class="font-medium">{copy.title}</span>
 					<span class="text-muted">
-						&middot; {total.shapes}
-						{total.shapes === 1 ? 'query' : 'queries'} &middot; {formatUsd(
+						in {total.shapes}
+						{total.shapes === 1 ? 'query' : 'queries'}, {formatUsd(
 							total.estimated_cost_usd,
 						)}
 					</span>
 				</p>
 				<p class="mt-1 text-muted">
 					{copy.explanation}
-					<span class="font-medium text-ink">Try:</span>
 					{copy.suggestion}
 				</p>
 			</li>
@@ -131,7 +130,7 @@
 				</div>
 
 				<p class="mt-1 text-xs text-muted">
-					{shapeEvidence(shape)} &middot; last run {formatTimestamp(shape.last_seen)}
+					{shapeEvidence(shape)}. Last run on {formatTimestamp(shape.last_seen)}.
 				</p>
 
 				<button
@@ -188,14 +187,11 @@
 		{#if hidden > 0}
 			Showing the {insights.findings.length} most expensive of {insights.total} findings, across
 			{shapes.length}
-			{shapes.length === 1 ? 'query' : 'queries'}. The other {hidden} are counted above but not
-			listed.
+			{shapes.length === 1 ? 'query' : 'queries'}.
 		{:else}
 			{insights.total}
 			{insights.total === 1 ? 'finding' : 'findings'} across {shapes.length}
 			{shapes.length === 1 ? 'query' : 'queries'}.
 		{/if}
-		These are signals worth checking, not conclusions, and the costs are estimates. A query can raise
-		more than one finding, so the totals above overlap. Do not add them up.
 	</p>
 {/if}

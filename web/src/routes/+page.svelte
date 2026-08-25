@@ -342,12 +342,14 @@
 	);
 </script>
 
-<h1 class="text-3xl font-bold">Dashboard</h1>
+<!--
+	The header already says where the reader is, so the heading is kept for
+	assistive technology and the banner takes the top of the page.
+-->
+<h1 class="sr-only">Dashboard</h1>
 
 {#if selectedConnection}
-	<div class="mt-4">
-		<HealthBanner connection={selectedConnection} />
-	</div>
+	<HealthBanner connection={selectedConnection} />
 {/if}
 
 {#if data.connections.length > 0}
@@ -399,10 +401,7 @@
 	</p>
 {:else}
 	<div class="mt-6">
-		<Panel
-			title="Filters"
-			description="These narrow the tiles, the chart, the cost attribution, and the query tables. Storage shows what you hold now, so filters do not change it."
-		>
+		<Panel title="Filters">
 			<!--
 				The time range is a filter like any other, so it lives here
 				rather than in a panel of its own.
@@ -448,11 +447,9 @@
 					Use preset window
 				</Button>
 				<!--
-					The zone never changes, so it never disappears. Only the
-					sentence beside it swaps, and both trail the controls so
-					their length cannot move anything.
+					Only the sentence swaps, and it trails the controls so its
+					length cannot move anything.
 				-->
-				<span class="text-xs text-faint">Times in {localTimeZoneName()}.</span>
 				<span class="text-xs text-faint">
 					{#if rangeActive}
 						Custom range in use; the preset dropdown is ignored.
@@ -519,13 +516,6 @@
 					Clear filters
 				</Button>
 			</div>
-
-			<p class="mt-3 min-h-5 border-t border-line pt-3 text-sm text-muted" aria-live="polite">
-				{#if filtersActive && summary?.query_count === 0}
-					No queries match these filters. The connection has data in this range, so try
-					widening or clearing them.
-				{/if}
-			</p>
 		</Panel>
 	</div>
 
@@ -579,10 +569,7 @@
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="Cost attribution"
-			description="Worked out from Duckling size and run time, next to the same length of time before it. This divides up compute time; it is not a copy of your MotherDuck bill."
-		>
+		<Panel title="Cost attribution">
 			<div class="grid gap-6 xl:grid-cols-2">
 				<div>
 					<h3 class="mb-2 text-sm font-medium text-muted">By user</h3>
@@ -611,24 +598,20 @@
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="Storage"
-			description="What the account holds right now, priced for the connection's region. MotherDuck charges on the average across a month, so this is a monthly rate, not a charge for the range you picked."
-		>
+		<Panel title="Storage">
 			<StorageTable rows={storage?.databases ?? []} />
 			{#if storage?.computed_at}
 				<p class="mt-2 text-xs text-faint">
-					MotherDuck computed these figures {formatTimestamp(storage.computed_at)}.
+					These figures were computed by MotherDuck on {formatTimestamp(
+						storage.computed_at,
+					)}.
 				</p>
 			{/if}
 		</Panel>
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="Query shapes"
-			description="Queries that differ only in their values are counted as one, so a query that runs nightly appears once with its total cost."
-		>
+		<Panel title="Query shapes">
 			<ShapeTable
 				{shapes}
 				selected={shapeFilter}
@@ -641,10 +624,7 @@
 	</div>
 
 	<div class="mt-6">
-		<Panel
-			title="What to review"
-			description="Query patterns that cost more than they need to, found by checking the query text and how its runs behaved. Each one shows what it actually cost, so you can judge whether it is worth changing."
-		>
+		<Panel title="What to review">
 			<InsightList
 				connectionId={connectionId ?? ''}
 				{insights}

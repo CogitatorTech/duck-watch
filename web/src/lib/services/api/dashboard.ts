@@ -107,6 +107,7 @@ const params = (connectionId: string, window: TimeWindow, options: ListOptions =
 	if (options.type) search.set('type', options.type);
 	if (options.minMs !== undefined && options.minMs > 0)
 		search.set('min_ms', String(options.minMs));
+	if (options.shape) search.set('shape', options.shape);
 	return search.toString();
 };
 

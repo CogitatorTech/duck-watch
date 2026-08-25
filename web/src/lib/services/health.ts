@@ -5,7 +5,7 @@ export type HealthTone = 'ok' | 'warn' | 'danger' | 'neutral';
 
 export type HealthNotice = {
 	tone: HealthTone;
-	/** Short state name, shown in the banner's lead. */
+	/** Short phrase for what ingestion is doing, shown in the banner's lead. */
 	label: string;
 	/** What is happening, in one sentence. */
 	detail: string;
@@ -60,7 +60,7 @@ export const describeHealth = (status: ConnectionStatus): HealthNotice => {
 		case 'healthy':
 			return {
 				tone: 'ok',
-				label: 'Ingestion healthy',
+				label: 'Ingesting data',
 				detail:
 					behind === null
 						? `Last sync ${age} ago.`
@@ -79,7 +79,7 @@ export const describeHealth = (status: ConnectionStatus): HealthNotice => {
 		case 'disabled':
 			return {
 				tone: 'neutral',
-				label: 'Ingestion turned off',
+				label: 'Not ingesting data',
 				detail:
 					age === null
 						? 'DuckWatch is not collecting from this connection.'
@@ -90,7 +90,7 @@ export const describeHealth = (status: ConnectionStatus): HealthNotice => {
 		case 'stale':
 			return {
 				tone: 'warn',
-				label: 'Ingestion behind',
+				label: 'Falling behind',
 				detail:
 					age === null
 						? 'No sync has been recorded as working.'
@@ -104,7 +104,7 @@ export const describeHealth = (status: ConnectionStatus): HealthNotice => {
 		case 'failing':
 			return {
 				tone: 'danger',
-				label: 'Ingestion failing',
+				label: 'Failing to ingest data',
 				detail:
 					age === null
 						? 'Every sync so far has failed.'
