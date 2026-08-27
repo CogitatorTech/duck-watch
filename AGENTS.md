@@ -128,6 +128,12 @@ These have each caused a wrong assumption at least once, and each is verified ag
   agent behavior nor the shape of a statement has to be relied on alone.
 - The query history view reports durations as intervals and has no rows read column. Ingestion converts intervals to
   milliseconds in SQL and reads timestamps as epoch milliseconds, which avoids any dependence on session time zone.
+- MotherDuck refreshes `storage_info` every one to six hours, and its own documentation says so, while
+  `storage_info_history` publishes one set of results a day however often the latest figures are recomputed. Reading
+  storage on the query poll interval therefore bills the account for hundreds of identical reads a day, so ingestion
+  reads it on `ingest_storage_interval_seconds` instead, defaulting to an hour. The attempt is recorded whether or not
+  it worked, because a token without the storage permission fails every pass and is exactly the case worth backing off.
+  That timer lives in the poller rather than a column, so a restart costs one extra read instead of a migration.
 - Compute estimates attribute Duckling time to individual queries. MotherDuck bills Standard and larger Ducklings for
   uptime instead, so concurrent queries share compute that DuckWatch charges to each of them, and idle Duckling time
   appears nowhere. Storage bills on average monthly usage, so it is reported as a monthly run rate rather than a charge
