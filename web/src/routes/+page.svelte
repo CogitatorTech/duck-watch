@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Button from '$lib/components/atoms/Button.svelte';
 	import Input from '$lib/components/atoms/Input.svelte';
@@ -388,7 +389,14 @@
 	</div>
 {/if}
 
-{#if data.connections.length === 0}
+{#if data.loadFailed}
+	<p class="mt-12 text-center text-muted">
+		Could not reach DuckWatch. Nothing below is out of date, because nothing loaded.
+	</p>
+	<div class="mt-3 flex justify-center">
+		<Button variant="secondary" size="sm" onclick={() => invalidateAll()}>Retry</Button>
+	</div>
+{:else if data.connections.length === 0}
 	<p class="mt-12 text-center text-muted">
 		Connect a MotherDuck account first on the
 		<a href={resolve('/connections')} class="text-accent-strong hover:underline"

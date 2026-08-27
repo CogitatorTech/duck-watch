@@ -113,7 +113,7 @@ impl AuthUseCaseTrait for AuthUseCase {
             .user_service
             .find_by_email(&email)
             .await
-            .map_err(|_| Error::unauthorized())?;
+            .map_err(unknown_credential)?;
 
         if !self.password_hasher.verify(password, &password_hash)? {
             return Err(Error::unauthorized());
@@ -331,6 +331,25 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, Error::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn login_does_not_report_an_unreachable_database_as_unauthorized() {
+        // Otherwise an outage tells people their password is wrong, and they
+        // reset a working one instead of looking at the database.
+        let mut mocks = Mocks::new();
+        mocks
+            .users
+            .expect_find_by_email()
+            .return_once(|_| Err(Error::External(anyhow::anyhow!("connection refused"))));
+
+        let err = mocks
+            .into_use_case()
+            .login("owner@example.com", "password1")
+            .await
+            .unwrap_err();
+
+        assert!(!matches!(err, Error::Unauthorized));
     }
 
     #[tokio::test]

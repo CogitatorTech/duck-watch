@@ -5,7 +5,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/duck-watch/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/duck-watch/actions/workflows/tests.yml)
 [![Code Coverage](https://img.shields.io/codecov/c/github/CogitatorTech/duck-watch?label=coverage&style=flat&labelColor=282c34&logo=codecov)](https://codecov.io/gh/CogitatorTech/duck-watch)
 [![License](https://img.shields.io/badge/license-Apache--2.0-007ec6?style=flat&labelColor=282c34&logo=open-source-initiative)](LICENSE)
-[![Docker](https://img.shields.io/badge/docker-ghcr.io-007ec6?style=flat&labelColor=282c34&logo=docker)](https://github.com/CogitatorTech/duck-watch/pkgs/container/duck-watch-backend)
+[![Container Images](https://img.shields.io/github/v/tag/CogitatorTech/duck-watch?label=ghcr.io&style=flat&labelColor=282c34&logo=docker&color=507ec6&sort=semver)](https://github.com/CogitatorTech/duck-watch/pkgs/container/duck-watch-backend)
 
 A minimalist observability tool for MotherDuck
 
@@ -43,7 +43,7 @@ DuckWatch shows you what your MotherDuck account is doing and what it is costing
 > The Admin and Builder preset roles include that permission by default.
 > The Lite plan does not include query history, so DuckWatch cannot read anything on it.
 
-##### Create a `docker-compose.yml` file
+##### 1. Create a `docker-compose.yml` file
 
 Save the text below as `docker-compose.yml` in an empty directory.
 
@@ -84,7 +84,7 @@ volumes:
     duckwatch-db:
 ```
 
-##### Encryption Key 
+##### 2. Encryption Key 
 
 Generate and write an encryption key into a `.env` file beside `docker-compose.yml`.
 
@@ -92,7 +92,7 @@ Generate and write an encryption key into a `.env` file beside `docker-compose.y
 printf 'TOKEN_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" > .env
 ```
 
-##### Starting DuckWatch
+##### 3. Starting DuckWatch
 
 Run `docker compose up -d` in the directory where `docker-compose.yml` is, and open http://localhost:3000 in your browser.
 
