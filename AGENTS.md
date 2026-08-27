@@ -91,6 +91,11 @@ Quick examples:
 - Two poller passes catch up on data recorded before a feature existed: `backfill_fingerprints` and
   `backfill_antipatterns`, both bounded by `ingest_backfill_limit`. A shape examined and found clean stores an empty
   array rather than null, so it is not examined again. Either pass failing must never stall the sync.
+- The ingestion watermark only ever moves forward. History is read oldest first under a row limit, so a batch cut short
+  by that limit can end earlier than the watermark it started from, and storing that would walk the next fetch further
+  back again. The overlap that catches late-published rows is skipped while a connection is catching up, because a
+  full batch means the rows still owed sit past the watermark and reading the same window again would crowd them out
+  for good.
 - `last_synced_at` records the last attempt, whether or not it worked; `last_success_at` records the last success. Both
   are needed, or a connection failing for days is indistinguishable from one that just succeeded. A failed pass passes
   `None` for the success time, and the update coalesces so the stored one survives.
@@ -99,7 +104,7 @@ Quick examples:
   token out of driver errors.
 - Configuration comes from environment variables parsed in `backend/src/config.rs`; `make run-backend` copies
   `backend/.env.example` to `backend/.env` when missing, and `make run-web` does the same for `web/.env.example`
-  (`VITE_API_URL`).
+  (`VITE_API_URL`, which only the development server needs; see the same-origin rule under Frontend Conventions).
 - Never commit real secrets. The `.env` files are gitignored, and example values belong in the `.env.example` files.
 
 ## Product Facts Worth Knowing
@@ -158,13 +163,20 @@ These have each caused a wrong assumption at least once, and each is verified ag
 - Text that distinguishes one row from another, such as a user name or an error type, must stay fully readable. A
   hover-only tooltip is not recovery for truncated text.
 - Sections are framed with `Panel.svelte`. A component placed inside a panel must not draw its own frame.
+- The API shares the page's origin. `web/src/lib/services/api/index.ts` falls back to a relative `/api/v1`, and
+  `web/nginx.conf` proxies `/api/` to `backend:8080`, so the published image carries no backend URL and runs anywhere
+  without a rebuild. Do not reintroduce a `VITE_API_URL` build argument in a Dockerfile or a compose file. It is a
+  development-only override for the Vite server, which has no proxy of its own. The published image was once built
+  without it and shipped `undefined` in place of the URL, which is the failure this arrangement removes.
 - Timestamps are absolute instants everywhere. Render them through `formatTimestamp` in
   `web/src/lib/services/time.svelte.ts`, which names the zone and honors the local or UTC choice. The health banner is
   the one exception, and it reports ages relative to now, because a reader there wants the gap rather than the instant.
-- Empty, loading, and error are three different states. An empty result must say whether there is no data or whether
-  the filters excluded it, and a failed load must keep the last good data on screen with a retry. Each table says this
-  for itself through its own empty message. The filter controls carry no notice of their own, because one that appears
-  and disappears changes the height of the panel above every figure on the page.
+- Empty, loading, and error are three different states. An empty result must say whether there is no data or whether the
+  filters excluded it, and a failed load must keep the last good data on screen with a retry. That covers the route
+  loader as well. A `load` that lets an API failure escape replaces the whole page with the framework's error screen,
+  which honors none of these rules, so `routes/+page.ts` catches the failure and hands the page a `loadFailed` flag to
+  report itself. Each table says this for itself through its own empty message. The filter controls carry no notice of
+  their own, because one that appears and disappears changes the height of the panel above every figure on the page.
 - Ingestion state qualifies every number on the page, so the health banner sits above them and says what a stale or
   failing connection means for the figures below. A healthy connection still occupies the same slot, since a banner
   that appears and disappears moves the page.

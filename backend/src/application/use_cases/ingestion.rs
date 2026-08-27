@@ -44,10 +44,19 @@ pub struct IngestionUseCase {
     query_shape_service: Box<dyn QueryShapeService>,
     sql_analyzer: Box<dyn SqlAnalyzer>,
     settings: IngestionSettings,
-    /// When storage was last read for each connection. Kept here rather than
-    /// in the database, because a restart forgetting it costs one extra read
-    /// and a schema change costs a migration.
-    last_storage_attempt: Mutex<HashMap<uuid::Uuid, DateTime<Utc>>>,
+    poll_state: Mutex<HashMap<uuid::Uuid, PollState>>,
+}
+
+/// What the poller remembers about one connection between passes. Losing it
+/// to a restart costs one extra storage read and one pass that re-reads the
+/// overlap window, which is why it lives here rather than in a column.
+#[derive(Debug, Default, Clone, Copy)]
+struct PollState {
+    /// When storage was last read, whether or not the read worked.
+    storage_attempted_at: Option<DateTime<Utc>>,
+    /// The last batch filled the limit, so the rows still owed are past the
+    /// watermark rather than behind it.
+    catching_up: bool,
 }
 
 impl IngestionUseCase {
@@ -68,28 +77,23 @@ impl IngestionUseCase {
             query_shape_service,
             sql_analyzer,
             settings,
-            last_storage_attempt: Mutex::new(HashMap::new()),
+            poll_state: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Whether storage is due for this connection. A connection never read
-    /// before is always due, so a newly added one fills its storage panel on
-    /// the first pass rather than an hour later.
-    fn storage_is_due(&self, connection_id: uuid::Uuid, now: DateTime<Utc>) -> bool {
-        let Ok(seen) = self.last_storage_attempt.lock() else {
-            // A poisoned lock must not stop ingestion, so the read goes ahead.
-            return true;
-        };
-        seen.get(&connection_id)
-            .is_none_or(|last| now - *last >= self.settings.storage_interval)
+    /// What the last pass left behind. A poisoned lock yields the default,
+    /// which reads storage and applies the overlap, and both are safe.
+    fn poll_state(&self, connection_id: uuid::Uuid) -> PollState {
+        self.poll_state
+            .lock()
+            .ok()
+            .and_then(|states| states.get(&connection_id).copied())
+            .unwrap_or_default()
     }
 
-    /// Records the attempt whether or not it worked. A token without the
-    /// storage permission fails every time, and backing off matters most
-    /// there.
-    fn mark_storage_attempted(&self, connection_id: uuid::Uuid, now: DateTime<Utc>) {
-        if let Ok(mut seen) = self.last_storage_attempt.lock() {
-            seen.insert(connection_id, now);
+    fn update_poll_state(&self, connection_id: uuid::Uuid, change: impl FnOnce(&mut PollState)) {
+        if let Ok(mut states) = self.poll_state.lock() {
+            change(states.entry(connection_id).or_default());
         }
     }
 
@@ -161,7 +165,17 @@ impl IngestionUseCase {
         watermark: Option<chrono::DateTime<Utc>>,
     ) -> Result<()> {
         let token = self.connection_service.get_token(connection_id).await?;
-        let since = watermark.map(|mark| mark - self.settings.overlap);
+        let state = self.poll_state(connection_id);
+
+        // The overlap re-reads the head of the history, because MotherDuck
+        // publishes rows there late. A batch that filled the limit last time
+        // means the rows still owed sit past the watermark rather than behind
+        // it, and reading that window again would crowd them out for good.
+        let since = match watermark {
+            Some(mark) if state.catching_up => Some(mark),
+            Some(mark) => Some(mark - self.settings.overlap),
+            None => None,
+        };
 
         let drafts = self
             .motherduck_client
@@ -169,11 +183,18 @@ impl IngestionUseCase {
             .await?;
 
         let now = Utc::now();
+        let filled_the_batch = drafts.len() >= self.settings.batch_limit as usize;
+        // History is read oldest first, so a batch cut short by the limit can
+        // end earlier than the watermark it started from. Storing that would
+        // send the next fetch further back still, and the one after that
+        // further again, until ingestion never reaches the present.
         let new_watermark = drafts
             .iter()
             .map(|draft| draft.start_time)
             .max()
+            .map(|newest| watermark.map_or(newest, |mark| mark.max(newest)))
             .or(watermark);
+        self.update_poll_state(connection_id, |state| state.catching_up = filled_the_batch);
         let mut events: Vec<QueryEvent> = drafts
             .into_iter()
             .map(|draft| draft.into_event(connection_id, now))
@@ -186,8 +207,18 @@ impl IngestionUseCase {
         // token without it still gets working query ingestion. It is also
         // read on its own slower schedule, because MotherDuck recomputes it
         // every one to six hours.
-        if self.storage_is_due(connection_id, now) {
-            self.mark_storage_attempted(connection_id, now);
+        // A connection never read before is always due, so a newly added one
+        // fills its storage panel on the first pass rather than an hour later.
+        let storage_due = state
+            .storage_attempted_at
+            .is_none_or(|last| now - last >= self.settings.storage_interval);
+        if storage_due {
+            // Recorded whether or not it works. A token without the storage
+            // permission fails every pass, and that is the case where backing
+            // off matters most.
+            self.update_poll_state(connection_id, |state| {
+                state.storage_attempted_at = Some(now)
+            });
             if let Err(err) = self.sync_storage(connection_id, &token, now).await {
                 tracing::info!("storage unavailable for connection {connection_id}: {err}");
             }
@@ -585,9 +616,26 @@ mod tests {
 
     /// Builds a use case whose mocks answer any number of passes, so a test
     /// can run several and watch how often storage is read.
+    /// A limit small enough that a couple of drafts fill a batch, which is
+    /// what puts the poller into catching-up mode.
+    fn small_batch_settings() -> IngestionSettings {
+        IngestionSettings {
+            batch_limit: 2,
+            ..settings()
+        }
+    }
+
     fn repeatable(
         client: MockMotherDuckClient,
         connection: MotherDuckConnection,
+    ) -> IngestionUseCase {
+        repeatable_with(client, connection, settings())
+    }
+
+    fn repeatable_with(
+        client: MockMotherDuckClient,
+        connection: MotherDuckConnection,
+        settings: IngestionSettings,
     ) -> IngestionUseCase {
         let mut connections = MockMotherDuckConnectionService::new();
         connections
@@ -611,8 +659,86 @@ mod tests {
             Box::new(storage_stub()),
             Box::new(shape_stub()),
             Box::new(analyzer_stub()),
-            settings(),
+            settings,
         )
+    }
+
+    #[tokio::test]
+    async fn a_truncated_batch_does_not_move_the_watermark_backwards() {
+        // History is read oldest first, so an account busy enough to fill the
+        // batch inside the overlap window hands back nothing but rows that
+        // predate the watermark.
+        let watermark = Utc::now();
+        let connection = connection(Some(watermark));
+        let connection_id = connection.id;
+        let older = watermark - Duration::minutes(5);
+
+        let mut connections = MockMotherDuckConnectionService::new();
+        connections
+            .expect_find_enabled()
+            .return_once(move || Ok(vec![connection]));
+        connections
+            .expect_get_token()
+            .return_once(|_| MotherDuckToken::new("tok"));
+        connections
+            .expect_update_sync_state()
+            .withf(move |id, state| {
+                *id == connection_id && state.watermark_start_time == Some(watermark)
+            })
+            .return_once(|_, _| Ok(()));
+
+        let mut client = MockMotherDuckClient::new();
+        client.expect_fetch_storage().returning(|_| Ok(vec![]));
+        client
+            .expect_fetch_query_history()
+            .return_once(move |_, _, _| {
+                Ok(vec![draft(older - Duration::minutes(1)), draft(older)])
+            });
+
+        let mut events = MockQueryEventService::new();
+        expect_no_backfill(&mut events);
+        events
+            .expect_upsert_batch()
+            .return_once(|batch| Ok(batch.len() as u64));
+
+        IngestionUseCase::new(
+            Box::new(connections),
+            Box::new(client),
+            Box::new(events),
+            Box::new(storage_stub()),
+            Box::new(shape_stub()),
+            Box::new(analyzer_stub()),
+            small_batch_settings(),
+        )
+        .run_once()
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_full_batch_makes_the_next_pass_skip_the_overlap() {
+        // Otherwise a connection whose overlap window alone fills the batch
+        // reads the same rows forever and never reaches the present.
+        let watermark = Utc::now();
+        let newest = watermark + Duration::minutes(30);
+
+        let mut client = MockMotherDuckClient::new();
+        client.expect_fetch_storage().returning(|_| Ok(vec![]));
+        let with_overlap = watermark - Duration::minutes(15);
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(with_overlap))
+            .times(1)
+            .returning(move |_, _, _| Ok(vec![draft(watermark), draft(newest)]));
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark))
+            .times(1)
+            .returning(|_, _, _| Ok(vec![]));
+
+        let use_case = repeatable_with(client, connection(Some(watermark)), small_batch_settings());
+        use_case.run_once().await.unwrap();
+        use_case.run_once().await.unwrap();
     }
 
     #[tokio::test]

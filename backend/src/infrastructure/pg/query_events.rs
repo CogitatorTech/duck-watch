@@ -259,6 +259,22 @@ impl QueryEventService for PgQueryEventService {
                  error_type = excluded.error_type,
                  error_message = excluded.error_message,
                  is_internal = excluded.is_internal,
+                 -- MotherDuck owns the columns below as well, so a re-read
+                 -- refreshes them for the same reason it refreshes the
+                 -- timings above. Coalescing keeps what is already stored
+                 -- when a later read has nothing to say about a column.
+                 -- `bytes_spilled_to_disk` is the one that matters most,
+                 -- because the spilling finding is read from it.
+                 query_type = coalesce(excluded.query_type, query_events.query_type),
+                 user_name = coalesce(excluded.user_name, query_events.user_name),
+                 instance_type = coalesce(excluded.instance_type, query_events.instance_type),
+                 duckling_id = coalesce(excluded.duckling_id, query_events.duckling_id),
+                 session_name = coalesce(excluded.session_name, query_events.session_name),
+                 bytes_uploaded = coalesce(excluded.bytes_uploaded, query_events.bytes_uploaded),
+                 bytes_downloaded =
+                     coalesce(excluded.bytes_downloaded, query_events.bytes_downloaded),
+                 bytes_spilled_to_disk =
+                     coalesce(excluded.bytes_spilled_to_disk, query_events.bytes_spilled_to_disk),
                  -- a re-read keeps the fingerprint already assigned
                  fingerprint = coalesce(excluded.fingerprint, query_events.fingerprint),
                  ingested_at = excluded.ingested_at",
@@ -768,6 +784,36 @@ mod integration_tests {
             user_agent: Some("duckdb/1.5.2 duckwatch".into()),
         }
         .into_event(connection_id, Utc::now())
+    }
+
+    #[sqlx::test]
+    async fn upsert_batch_takes_resource_metrics_reported_on_a_later_read(pool: Pool<Postgres>) {
+        // The overlap window re-reads queries already stored. Dropping what
+        // that read reports would leave the spilling finding blind.
+        let connection_id = seed_connection(&pool).await;
+        let service = PgQueryEventService::new(pool.clone());
+
+        let mut first = event(connection_id, 100, 5, None);
+        first.instance_type = None;
+        first.bytes_spilled_to_disk = None;
+        service.upsert_batch(vec![first.clone()]).await.unwrap();
+
+        first.instance_type = Some("jumbo".into());
+        first.bytes_spilled_to_disk = Some(2_000_000_000);
+        service.upsert_batch(vec![first.clone()]).await.unwrap();
+
+        let (instance_type, spilled): (Option<String>, Option<i64>) = sqlx::query_as(
+            "select instance_type, bytes_spilled_to_disk from query_events
+             where connection_id = $1 and md_query_id = $2",
+        )
+        .bind(connection_id)
+        .bind(first.md_query_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(instance_type.as_deref(), Some("jumbo"));
+        assert_eq!(spilled, Some(2_000_000_000));
     }
 
     #[sqlx::test]

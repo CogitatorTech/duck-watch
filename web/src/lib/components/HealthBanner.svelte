@@ -44,11 +44,12 @@
 
 	<!--
 		This line is what stops old numbers reading as current, so it belongs
-		in the banner rather than in a tooltip.
+		in the banner rather than in a tooltip. A healthy connection has
+		nothing to say here, and the line still holds its height, because the
+		banner sits above every figure on the page and taking it away would
+		move all of them.
 	-->
-	{#if notice.consequence}
-		<p class="mt-1 text-sm {INKS[notice.tone]}">{notice.consequence}</p>
-	{/if}
+	<p class="mt-1 min-h-5 text-sm {INKS[notice.tone]}">{notice.consequence}</p>
 
 	{#if notice.error}
 		<p
