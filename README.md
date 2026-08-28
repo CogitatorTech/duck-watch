@@ -14,8 +14,16 @@ A minimalist observability tool for MotherDuck
 ---
 
 DuckWatch shows you what your MotherDuck account is doing and what it is costing you.
-<br>
 
+### Key Features
+
+- Latency, with percentiles, slow query lists, and a chart over time
+- Failures, with error types and a failures-only view
+- Cost estimates, attributed per query, per user, per Duckling size, and per query shape, priced from MotherDuck's published rates, plus a monthly run rate for storage
+- Insights about queries (including anti-pattern findings such as select *, cross joins, missing filters, and spilling, grouped by query shape (like queries that differ only in their literals))
+
+
+<br>
 <div align="center">
   <img alt="Stats" src="docs/assets/screenshots/2.png" width="80%">
 </div>
