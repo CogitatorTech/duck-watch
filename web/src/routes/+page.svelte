@@ -326,7 +326,7 @@
 		const start = new Date(bucket.bucket_start);
 		// With one bucket there is no neighbour to measure against, and that
 		// bucket covers the whole range on screen, so the range on screen is
-		// the best guess at its width: the custom range when one is active,
+		// the best guess at its width; the custom range when one is active,
 		// and the preset window otherwise. The preset alone would zoom out
 		// rather than in once a custom range narrower than it is set.
 		const width =

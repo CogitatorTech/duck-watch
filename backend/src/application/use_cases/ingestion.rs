@@ -218,7 +218,7 @@ impl IngestionUseCase {
         // every one to six hours.
         // A connection never read before is always due, so a newly added one
         // fills its storage panel on the first pass rather than an hour later.
-        // This runs before the stall check below for the same independence: a
+        // This runs before the stall check below for the same independence; a
         // wedged query watermark must not freeze the storage panel with it.
         let storage_due = state
             .storage_attempted_at
@@ -1045,7 +1045,7 @@ mod tests {
             .returning(|_, _| Ok(()));
 
         let mut client = MockMotherDuckClient::new();
-        // Once per pass: storage is due on both, and the second pass reports
+        // Storage is due on both passes, and the second pass reports
         // the stall, so the second read is the assertion.
         client
             .expect_fetch_storage()
