@@ -18,7 +18,7 @@ DuckWatch shows you what your MotherDuck account is doing and what it is costing
 ### Key Features
 
 - Cost estimates (per query, per user, per Duckling size, per query shape, etc.)
-- Insights about queries (including anti-pattern findings such as select *, cross joins, missing filters, etc.)
+- Insights about queries (including finding anti-patterns such as select *, cross joins, missing filters, etc.)
 - Latency and failure reports
 
 <br>
