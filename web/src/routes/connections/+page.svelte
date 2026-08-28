@@ -130,6 +130,13 @@
 								>
 									Last sync failed: {connection.last_sync_error}
 								</p>
+							{:else if connection.last_ingest_warning}
+								<p
+									class="truncate text-sm text-warn-ink"
+									title={connection.last_ingest_warning}
+								>
+									Syncing, with a warning: {connection.last_ingest_warning}
+								</p>
 							{:else if connection.last_synced_at}
 								<p class="text-sm text-muted">
 									Synced {formatTimestamp(connection.last_synced_at)}

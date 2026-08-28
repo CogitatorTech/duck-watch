@@ -314,6 +314,9 @@
 			(Number(minSeconds) || 0) > 0,
 	);
 
+	/** The span of the active preset window, with a day as the fallback. */
+	const presetSpanMs = () => windows.find((option) => option.value === window)?.ms ?? 86_400_000;
+
 	/** The local wall clock string a datetime-local input expects. */
 	const toInputValue = (date: Date) => {
 		const pad = (value: number) => String(value).padStart(2, '0');
@@ -335,7 +338,7 @@
 					new Date(buckets[0].bucket_start).getTime()
 				: customFrom !== undefined
 					? new Date(customTo ?? Date.now()).getTime() - new Date(customFrom).getTime()
-					: (windows.find((option) => option.value === window)?.ms ?? 86_400_000);
+					: presetSpanMs();
 		fromInput = toInputValue(start);
 		toInput = toInputValue(new Date(start.getTime() + width));
 	};
@@ -347,7 +350,7 @@
 	 */
 	const seedRange = () => {
 		if (fromInput || toInput) return;
-		const span = windows.find((option) => option.value === window)?.ms ?? 86_400_000;
+		const span = presetSpanMs();
 		const end = new Date();
 		fromInput = toInputValue(new Date(end.getTime() - span));
 		toInput = toInputValue(end);

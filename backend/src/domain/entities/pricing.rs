@@ -29,11 +29,8 @@ const TIER_STORAGE_RATES: [f64; 3] = [0.04, 0.043, 0.044];
 const BYTES_PER_GB: f64 = 1_000_000_000.0;
 
 /// Pulse bills per compute unit second with a one second floor, so a very
-/// short query still costs a second.
-const PULSE_MINIMUM_SECONDS: f64 = 1.0;
-
-/// The same floor in milliseconds, so the store can count the runs that fall
-/// under it without knowing what it is for. A test keeps the two in step.
+/// short query still costs a second. In milliseconds, so the store can count
+/// the runs that fall under it without knowing what it is for.
 pub const PULSE_MINIMUM_MS: i64 = 1000;
 
 /// What a group of runs on one Duckling size needs to be priced.
@@ -102,17 +99,30 @@ impl RegionTier {
         duration_ms: Option<i64>,
     ) -> Option<f64> {
         let instance_type = instance_type?;
-        let rate = self.hourly_rate_usd(instance_type)?;
-        let billable = match instance_type.trim().to_lowercase().as_str() {
+        self.hourly_rate_usd(instance_type)?;
+        // One run is a group of one, so the group method carries the floor
+        // arithmetic alone and a row in the query table always sums to the
+        // tiles above it.
+        let runtime = match instance_type.trim().to_lowercase().as_str() {
             // A Pulse run with no reported duration still bills the floor,
             // the same way the group figures count it, so a row in the query
             // table never shows nothing while the tiles charge a second.
             "pulse" => {
-                ((duration_ms.unwrap_or(0).max(0) as f64) / 1000.0).max(PULSE_MINIMUM_SECONDS)
+                let duration_ms = duration_ms.unwrap_or(0).max(0);
+                let under_floor = duration_ms < PULSE_MINIMUM_MS;
+                GroupRuntime {
+                    total_ms: duration_ms,
+                    sub_second_count: i64::from(under_floor),
+                    sub_second_ms: if under_floor { duration_ms } else { 0 },
+                }
             }
-            _ => (duration_ms?.max(0) as f64) / 1000.0,
+            _ => GroupRuntime {
+                total_ms: duration_ms?.max(0),
+                sub_second_count: 0,
+                sub_second_ms: 0,
+            },
         };
-        Some(billable / 3600.0 * rate)
+        Some(self.estimate_group_cost_usd(instance_type, runtime))
     }
 
     /// What a gigabyte costs to keep for a month at this tier.
@@ -144,7 +154,7 @@ impl RegionTier {
             "pulse" => {
                 let over_floor_ms = runtime.total_ms.max(0) - runtime.sub_second_ms.max(0);
                 (over_floor_ms.max(0) as f64) / 1000.0
-                    + (runtime.sub_second_count.max(0) as f64) * PULSE_MINIMUM_SECONDS
+                    + (runtime.sub_second_count.max(0) as f64) * (PULSE_MINIMUM_MS as f64) / 1000.0
             }
             _ => (runtime.total_ms.max(0) as f64) / 1000.0,
         };
@@ -225,11 +235,6 @@ mod tests {
             sub_second_count,
             sub_second_ms,
         }
-    }
-
-    #[test]
-    fn the_pulse_floor_reads_the_same_in_both_units() {
-        assert_eq!(PULSE_MINIMUM_MS as f64 / 1000.0, PULSE_MINIMUM_SECONDS);
     }
 
     #[test]

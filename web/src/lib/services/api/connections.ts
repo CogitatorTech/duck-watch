@@ -13,6 +13,11 @@ export type Connection = {
 	/** When the poller last succeeded, which is what staleness is measured from. */
 	last_success_at: string | null;
 	last_sync_error: string | null;
+	/**
+	 * A note from a sync that worked but lost rows for good. Separate from the
+	 * error, because syncing still works while the figures miss something.
+	 */
+	last_ingest_warning: string | null;
 	created_at: string;
 	updated_at: string;
 };

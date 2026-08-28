@@ -432,7 +432,8 @@ pub struct LatencyBucket {
 pub struct InstanceTypeCount {
     pub instance_type: String,
     pub query_count: i64,
-    /// Total run time attributed to this Duckling size in the range. Mirrors
+    /// Total billed compute time attributed to this Duckling size in the
+    /// range; see `QueryEvent::billed_duration_ms` for what bills. Mirrors
     /// `runtime.total_ms`, kept as its own field because the response the
     /// browser reads carries this and not the pricing inputs.
     pub total_ms: i64,

@@ -14,7 +14,7 @@ export type HealthNotice = {
 	 * healthy, so the banner does not warn about nothing.
 	 */
 	consequence: string;
-	/** The error MotherDuck or the poller reported, when there is one. */
+	/** The error or warning the poller reported, when there is one. */
 	error: string | null;
 };
 
@@ -57,17 +57,32 @@ export const describeHealth = (status: ConnectionStatus): HealthNotice => {
 	const error = status.last_sync_error;
 
 	switch (status.health) {
-		case 'healthy':
+		case 'healthy': {
+			const detail =
+				behind === null
+					? `Last sync ${age} ago.`
+					: `Last sync ${age} ago. The newest query collected is ${behind} old.`;
+			// Syncing works, but a past pass lost rows for good, and the
+			// figures below are short by them. That is worth a warning even
+			// though nothing is failing.
+			if (status.last_ingest_warning) {
+				return {
+					tone: 'warn',
+					label: 'Ingesting data',
+					detail,
+					consequence:
+						'A sync skipped rows it could not read, so those rows are missing from the figures below.',
+					error: status.last_ingest_warning,
+				};
+			}
 			return {
 				tone: 'ok',
 				label: 'Ingesting data',
-				detail:
-					behind === null
-						? `Last sync ${age} ago.`
-						: `Last sync ${age} ago. The newest query collected is ${behind} old.`,
+				detail,
 				consequence: '',
 				error: null,
 			};
+		}
 		case 'pending':
 			return {
 				tone: 'neutral',

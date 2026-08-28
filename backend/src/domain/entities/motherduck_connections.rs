@@ -60,6 +60,11 @@ pub struct MotherDuckConnection {
     /// indistinguishable from one that succeeded a moment ago.
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_sync_error: Option<String>,
+    /// A note from a sync that worked but lost something for good, such as
+    /// rows the fetch could not read. Separate from the error above, because
+    /// an error means syncing is broken and a warning means the figures are
+    /// missing something while syncing goes on working.
+    pub last_ingest_warning: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -188,6 +193,7 @@ impl ConnectionDraft {
                 last_synced_at: None,
                 last_success_at: None,
                 last_sync_error: None,
+                last_ingest_warning: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -288,6 +294,22 @@ mod tests {
         assert_eq!(
             connection.status(now, stale_after()).health,
             IngestionHealth::Failing
+        );
+    }
+
+    #[test]
+    fn a_recorded_warning_does_not_read_as_failing() {
+        // A warning says a working sync lost something, so it must not turn
+        // the connection's health into a failure.
+        let now = Utc::now();
+        let mut connection = connection();
+        connection.last_synced_at = Some(now);
+        connection.last_success_at = Some(now - chrono::Duration::seconds(10));
+        connection.last_ingest_warning = Some("3 rows could not be read".into());
+
+        assert_eq!(
+            connection.status(now, stale_after()).health,
+            IngestionHealth::Healthy
         );
     }
 

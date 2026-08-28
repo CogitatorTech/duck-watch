@@ -103,6 +103,9 @@ Quick examples:
 - `last_synced_at` records the last attempt, whether or not it worked; `last_success_at` records the last success. Both
   are needed, or a connection failing for days is indistinguishable from one that just succeeded. A failed pass passes
   `None` for the success time, and the update coalesces so the stored one survives.
+- A pass that worked but skipped rows it could not read records the note in `last_ingest_warning`, never in
+  `last_sync_error`, because an error reads as a broken connection while syncing goes on working. The update coalesces
+  so a clean pass leaves the stored warning alone, since the skipped rows stay missing for good.
 - Secrets are encrypted at rest with the key in `TOKEN_ENCRYPTION_KEY`. A MotherDuck token must never be serialized,
   logged, or included in an error message; `MotherDuckToken` redacts its own `Debug` output and the client scrubs the
   token out of driver errors.

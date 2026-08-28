@@ -26,6 +26,7 @@ struct ConnectionRow {
     last_synced_at: Option<DateTime<Utc>>,
     last_success_at: Option<DateTime<Utc>>,
     last_sync_error: Option<String>,
+    last_ingest_warning: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -43,6 +44,7 @@ impl From<ConnectionRow> for MotherDuckConnection {
             last_synced_at: row.last_synced_at,
             last_success_at: row.last_success_at,
             last_sync_error: row.last_sync_error,
+            last_ingest_warning: row.last_ingest_warning,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -71,7 +73,7 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
     async fn find_all(&self) -> Result<Vec<MotherDuckConnection>> {
         let rows = sqlx::query_as::<_, ConnectionRow>(
             "select id, name, region_tier, enabled, watermark_start_time, last_synced_at,
-                    last_success_at, last_sync_error, created_at, updated_at
+                    last_success_at, last_sync_error, last_ingest_warning, created_at, updated_at
              from motherduck_connections
              order by created_at desc",
         )
@@ -84,7 +86,7 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
     async fn find_by_id(&self, id: Uuid) -> Result<MotherDuckConnection> {
         let row = sqlx::query_as::<_, ConnectionRow>(
             "select id, name, region_tier, enabled, watermark_start_time, last_synced_at,
-                    last_success_at, last_sync_error, created_at, updated_at
+                    last_success_at, last_sync_error, last_ingest_warning, created_at, updated_at
              from motherduck_connections
              where id = $1",
         )
@@ -106,11 +108,11 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
             "insert into motherduck_connections
                  (id, name, token_ciphertext, token_nonce, region_tier, enabled,
                   watermark_start_time, last_synced_at, last_success_at, last_sync_error,
-                  created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                  last_ingest_warning, created_at, updated_at)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              returning id, name, region_tier, enabled, watermark_start_time,
-                       last_synced_at, last_success_at, last_sync_error, created_at,
-                       updated_at",
+                       last_synced_at, last_success_at, last_sync_error, last_ingest_warning,
+                       created_at, updated_at",
         )
         .bind(connection.id)
         .bind(&connection.name)
@@ -122,6 +124,7 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
         .bind(connection.last_synced_at)
         .bind(connection.last_success_at)
         .bind(&connection.last_sync_error)
+        .bind(&connection.last_ingest_warning)
         .bind(connection.created_at)
         .bind(connection.updated_at)
         .fetch_one(&self.db)
@@ -135,8 +138,8 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
             "delete from motherduck_connections
              where id = $1
              returning id, name, region_tier, enabled, watermark_start_time,
-                       last_synced_at, last_success_at, last_sync_error, created_at,
-                       updated_at",
+                       last_synced_at, last_success_at, last_sync_error, last_ingest_warning,
+                       created_at, updated_at",
         )
         .bind(id)
         .fetch_one(&self.db)
@@ -148,7 +151,7 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
     async fn find_enabled(&self) -> Result<Vec<MotherDuckConnection>> {
         let rows = sqlx::query_as::<_, ConnectionRow>(
             "select id, name, region_tier, enabled, watermark_start_time, last_synced_at,
-                    last_success_at, last_sync_error, created_at, updated_at
+                    last_success_at, last_sync_error, last_ingest_warning, created_at, updated_at
              from motherduck_connections
              where enabled
              order by created_at",
@@ -182,6 +185,9 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
                  last_synced_at = $3,
                  last_success_at = coalesce($4, last_success_at),
                  last_sync_error = $5,
+                 -- The warning outlives clean passes, because the rows a past
+                 -- pass skipped stay missing however well later passes go.
+                 last_ingest_warning = coalesce($6, last_ingest_warning),
                  updated_at = $3
              where id = $1",
         )
@@ -190,6 +196,7 @@ impl MotherDuckConnectionService for PgMotherDuckConnectionService {
         .bind(state.last_synced_at)
         .bind(state.last_success_at)
         .bind(&state.last_sync_error)
+        .bind(&state.ingest_warning)
         .execute(&self.db)
         .await?;
 
@@ -257,6 +264,7 @@ mod integration_tests {
                     last_synced_at: now,
                     last_success_at: Some(now),
                     last_sync_error: None,
+                    ingest_warning: None,
                 },
             )
             .await
@@ -284,6 +292,7 @@ mod integration_tests {
                     last_synced_at: succeeded_at,
                     last_success_at: Some(succeeded_at),
                     last_sync_error: None,
+                    ingest_warning: None,
                 },
             )
             .await
@@ -301,6 +310,7 @@ mod integration_tests {
                     last_synced_at: failed_at,
                     last_success_at: None,
                     last_sync_error: Some("permission denied".into()),
+                    ingest_warning: None,
                 },
             )
             .await
@@ -310,6 +320,52 @@ mod integration_tests {
         assert_eq!(found.last_synced_at, Some(failed_at));
         assert_eq!(found.last_success_at, Some(succeeded_at));
         assert_eq!(found.last_sync_error.as_deref(), Some("permission denied"));
+    }
+
+    #[sqlx::test]
+    async fn a_clean_pass_keeps_the_recorded_warning(pool: Pool<Postgres>) {
+        // The rows a past pass skipped stay missing however well later passes
+        // go, so a clean pass must not erase the one record of the gap.
+        let service = PgMotherDuckConnectionService::new(pool, cipher());
+        let (connection, token) = sample_connection();
+        let inserted = service.insert(connection, token).await.unwrap();
+
+        let first_pass = crate::infrastructure::pg::users::integration_tests::trunc_now();
+        service
+            .update_sync_state(
+                inserted.id,
+                SyncState {
+                    watermark_start_time: Some(first_pass),
+                    last_synced_at: first_pass,
+                    last_success_at: Some(first_pass),
+                    last_sync_error: None,
+                    ingest_warning: Some("3 query history rows could not be read".into()),
+                },
+            )
+            .await
+            .unwrap();
+
+        let clean_pass = first_pass + chrono::Duration::minutes(1);
+        service
+            .update_sync_state(
+                inserted.id,
+                SyncState {
+                    watermark_start_time: Some(clean_pass),
+                    last_synced_at: clean_pass,
+                    last_success_at: Some(clean_pass),
+                    last_sync_error: None,
+                    ingest_warning: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let found = service.find_by_id(inserted.id).await.unwrap();
+        assert_eq!(
+            found.last_ingest_warning.as_deref(),
+            Some("3 query history rows could not be read")
+        );
+        assert_eq!(found.last_sync_error, None);
     }
 
     #[sqlx::test]
