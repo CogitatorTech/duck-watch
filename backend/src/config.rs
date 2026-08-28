@@ -43,6 +43,11 @@ pub struct Config {
     /// history recorded before analysis existed has caught up.
     #[serde(default = "default_ingest_backfill_limit")]
     pub ingest_backfill_limit: u32,
+    /// How often storage is re-read, in seconds. MotherDuck recomputes its
+    /// storage view every one to six hours, so reading it on the query
+    /// interval bills the account for hundreds of identical reads a day.
+    #[serde(default = "default_ingest_storage_interval_seconds")]
+    pub ingest_storage_interval_seconds: i64,
 }
 
 impl Config {
@@ -90,6 +95,12 @@ impl Config {
 
 fn default_port() -> u16 {
     8080
+}
+
+/// An hour matches the fastest refresh MotherDuck documents, so the figures
+/// are never more than one refresh behind.
+fn default_ingest_storage_interval_seconds() -> i64 {
+    3600
 }
 
 fn default_cors_origins() -> Vec<String> {

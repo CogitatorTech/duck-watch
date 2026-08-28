@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::domain::entities::insights::Antipattern;
+use crate::domain::entities::pricing::GroupRuntime;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -207,7 +208,9 @@ pub struct ShapeCell {
     pub example_sql: String,
     pub runs: i64,
     pub failure_count: i64,
-    pub total_ms: i64,
+    /// What this group needs to be priced, in one piece so the pricing
+    /// inputs cannot drift apart between the views that carry them.
+    pub runtime: GroupRuntime,
     pub max_ms: i64,
     /// What these runs wrote to disk when they ran out of memory.
     pub bytes_spilled: i64,

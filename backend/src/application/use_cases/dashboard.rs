@@ -177,10 +177,11 @@ impl DashboardUseCase {
 }
 
 /// Attaches the cost estimate each event's Duckling size and run time imply.
+/// `QueryEvent::billed_duration_ms` says which duration bills and why.
 fn price_events(mut events: Vec<QueryEvent>, tier: RegionTier) -> Vec<QueryEvent> {
     for event in &mut events {
         event.estimated_cost_usd =
-            tier.estimate_cost_usd(event.instance_type.as_deref(), event.total_elapsed_time_ms);
+            tier.estimate_cost_usd(event.instance_type.as_deref(), event.billed_duration_ms());
     }
     events
 }
@@ -195,8 +196,7 @@ fn fold_attribution(
     let mut rows: HashMap<String, AttributionRow> = HashMap::new();
 
     for cell in cells {
-        let cost =
-            tier.estimate_group_cost_usd(&cell.instance_type, cell.total_ms, cell.query_count);
+        let cost = tier.estimate_group_cost_usd(&cell.instance_type, cell.runtime);
         let row = rows.entry(cell.key.clone()).or_insert(AttributionRow {
             key: cell.key,
             query_count: 0,
@@ -208,7 +208,7 @@ fn fold_attribution(
         });
         row.query_count += cell.query_count;
         row.failure_count += cell.failure_count;
-        row.total_ms += cell.total_ms;
+        row.total_ms += cell.runtime.total_ms;
         row.estimated_cost_usd += cost;
     }
 
@@ -239,7 +239,7 @@ fn fold_shapes(cells: Vec<ShapeCell>, tier: RegionTier) -> Vec<ShapeStats> {
     let mut shapes: HashMap<String, ShapeStats> = HashMap::new();
 
     for cell in cells {
-        let cost = tier.estimate_group_cost_usd(&cell.instance_type, cell.total_ms, cell.runs);
+        let cost = tier.estimate_group_cost_usd(&cell.instance_type, cell.runtime);
         let entry = shapes
             .entry(cell.fingerprint.clone())
             .or_insert(ShapeStats {
@@ -259,7 +259,7 @@ fn fold_shapes(cells: Vec<ShapeCell>, tier: RegionTier) -> Vec<ShapeStats> {
             });
         entry.runs += cell.runs;
         entry.failure_count += cell.failure_count;
-        entry.total_ms += cell.total_ms;
+        entry.total_ms += cell.runtime.total_ms;
         entry.max_ms = entry.max_ms.max(cell.max_ms);
         entry.bytes_spilled = entry.bytes_spilled.saturating_add(cell.bytes_spilled);
         entry.estimated_cost_usd += cost;
@@ -300,8 +300,7 @@ fn fold_shapes(cells: Vec<ShapeCell>, tier: RegionTier) -> Vec<ShapeStats> {
 fn cost_by_key(cells: Vec<AttributionCell>, tier: RegionTier) -> HashMap<String, f64> {
     let mut totals: HashMap<String, f64> = HashMap::new();
     for cell in cells {
-        let cost =
-            tier.estimate_group_cost_usd(&cell.instance_type, cell.total_ms, cell.query_count);
+        let cost = tier.estimate_group_cost_usd(&cell.instance_type, cell.runtime);
         *totals.entry(cell.key).or_insert(0.0) += cost;
     }
     totals
@@ -337,11 +336,8 @@ impl DashboardUseCaseTrait for DashboardUseCase {
 
         // The store counts and sums; the tier turns that into money.
         for entry in &mut summary.instance_types {
-            entry.estimated_cost_usd = tier.estimate_group_cost_usd(
-                &entry.instance_type,
-                entry.total_ms,
-                entry.query_count,
-            );
+            entry.estimated_cost_usd =
+                tier.estimate_group_cost_usd(&entry.instance_type, entry.runtime);
         }
         summary.estimated_cost_usd = summary
             .instance_types
@@ -372,8 +368,7 @@ impl DashboardUseCaseTrait for DashboardUseCase {
             .await?;
         let mut cost_by_bucket: HashMap<_, f64> = HashMap::new();
         for cell in cells {
-            let cost =
-                tier.estimate_group_cost_usd(&cell.instance_type, cell.total_ms, cell.query_count);
+            let cost = tier.estimate_group_cost_usd(&cell.instance_type, cell.runtime);
             *cost_by_bucket.entry(cell.bucket_start).or_insert(0.0) += cost;
         }
         for bucket in &mut buckets {
@@ -630,6 +625,7 @@ mod tests {
     use crate::application::services::storage_samples::MockStorageSampleService;
     use crate::domain::entities::insights::Antipattern;
     use crate::domain::entities::motherduck_connections::ConnectionDraft;
+    use crate::domain::entities::pricing::GroupRuntime;
     use crate::domain::entities::query_events::{CostBucketCell, InstanceTypeCount};
     use crate::domain::entities::query_events::{QueryEventDraft, TimeWindow};
     use crate::domain::entities::query_shapes::{ShapeCell, ShapeStatement};
@@ -794,12 +790,22 @@ mod tests {
                         query_count: 1,
                         total_ms: 3_600_000,
                         estimated_cost_usd: 0.0,
+                        runtime: GroupRuntime {
+                            total_ms: 3_600_000,
+                            sub_second_count: 0,
+                            sub_second_ms: 0,
+                        },
                     },
                     InstanceTypeCount {
                         instance_type: "jumbo".into(),
                         query_count: 1,
                         total_ms: 3_600_000,
                         estimated_cost_usd: 0.0,
+                        runtime: GroupRuntime {
+                            total_ms: 3_600_000,
+                            sub_second_count: 0,
+                            sub_second_ms: 0,
+                        },
                     },
                 ],
                 estimated_cost_usd: 0.0,
@@ -829,7 +835,11 @@ mod tests {
             instance_type: instance.into(),
             query_count: count,
             failure_count: 0,
-            total_ms,
+            runtime: GroupRuntime {
+                total_ms,
+                sub_second_count: 0,
+                sub_second_ms: 0,
+            },
         }
     }
 
@@ -840,7 +850,11 @@ mod tests {
             example_sql: format!("select from {fingerprint}"),
             runs,
             failure_count: 0,
-            total_ms,
+            runtime: GroupRuntime {
+                total_ms,
+                sub_second_count: 0,
+                sub_second_ms: 0,
+            },
             max_ms: total_ms,
             bytes_spilled: 0,
             antipatterns: Vec::new(),
@@ -1241,7 +1255,11 @@ mod tests {
                 bucket_start,
                 instance_type: "standard".into(),
                 query_count: 1,
-                total_ms: 3_600_000,
+                runtime: GroupRuntime {
+                    total_ms: 3_600_000,
+                    sub_second_count: 0,
+                    sub_second_ms: 0,
+                },
             }])
         });
 

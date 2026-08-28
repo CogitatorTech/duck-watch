@@ -1,3 +1,4 @@
+use crate::domain::entities::pricing::GroupRuntime;
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
 use uuid::Uuid;
@@ -82,6 +83,19 @@ pub struct QueryEventDraft {
     /// As reported by MotherDuck, and what DuckWatch's own traffic is
     /// recognized by.
     pub user_agent: Option<String>,
+}
+
+impl QueryEvent {
+    /// The duration compute is priced from.
+    ///
+    /// Wait time is time spent queued while other queries hold the execution
+    /// threads, so execution time is what bills, and elapsed time stands in
+    /// only where MotherDuck reports no execution time. The `BILLED_MS`
+    /// column in `infrastructure/pg/query_events.rs` encodes the same rule in
+    /// SQL for the group figures; a change to one is a change to both.
+    pub fn billed_duration_ms(&self) -> Option<i64> {
+        self.execution_time_ms.or(self.total_elapsed_time_ms)
+    }
 }
 
 impl QueryEventDraft {
@@ -225,7 +239,9 @@ pub struct AttributionCell {
     pub instance_type: String,
     pub query_count: i64,
     pub failure_count: i64,
-    pub total_ms: i64,
+    /// What this group needs to be priced, in one piece so the pricing
+    /// inputs cannot drift apart between the views that carry them.
+    pub runtime: GroupRuntime,
 }
 
 /// One chart bucket and Duckling size pair, which the application prices.
@@ -234,7 +250,9 @@ pub struct CostBucketCell {
     pub bucket_start: DateTime<Utc>,
     pub instance_type: String,
     pub query_count: i64,
-    pub total_ms: i64,
+    /// What this group needs to be priced, in one piece so the pricing
+    /// inputs cannot drift apart between the views that carry them.
+    pub runtime: GroupRuntime,
 }
 
 /// What one user or Duckling size accounted for in the period.
@@ -414,9 +432,15 @@ pub struct LatencyBucket {
 pub struct InstanceTypeCount {
     pub instance_type: String,
     pub query_count: i64,
-    /// Total run time attributed to this Duckling size in the range.
+    /// Total run time attributed to this Duckling size in the range. Mirrors
+    /// `runtime.total_ms`, kept as its own field because the response the
+    /// browser reads carries this and not the pricing inputs.
     pub total_ms: i64,
     pub estimated_cost_usd: f64,
+    /// Pricing inputs rather than figures to show, so they stay out of the
+    /// response the browser reads.
+    #[serde(skip)]
+    pub runtime: GroupRuntime,
 }
 
 /// The dashboard's headline numbers for one connection and window.
@@ -472,6 +496,20 @@ mod tests {
         assert_eq!(event.connection_id, connection_id);
         assert_eq!(event.md_query_id, id);
         assert_eq!(event.ingested_at, now);
+    }
+
+    #[test]
+    fn billing_prefers_execution_time_and_falls_back_to_elapsed() {
+        let mut event = sample_draft(Utc::now()).into_event(Uuid::new_v4(), Utc::now());
+        event.execution_time_ms = Some(5);
+        event.total_elapsed_time_ms = Some(65);
+        assert_eq!(event.billed_duration_ms(), Some(5));
+
+        event.execution_time_ms = None;
+        assert_eq!(event.billed_duration_ms(), Some(65));
+
+        event.total_elapsed_time_ms = None;
+        assert_eq!(event.billed_duration_ms(), None);
     }
 
     #[test]

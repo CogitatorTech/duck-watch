@@ -7,6 +7,7 @@
 	} from '$lib/services/api/dashboard';
 	import SqlText from '$lib/components/SqlText.svelte';
 	import { formatBytes, formatMs, formatUsd } from '$lib/services/chart';
+	import { listedStatement, statementForCopy, wholeStatement } from '$lib/services/insights';
 	import { formatTimestamp } from '$lib/services/time.svelte';
 	import { previewSql } from '$lib/services/sql';
 	import { truncate } from '$lib/services/utils';
@@ -194,7 +195,16 @@
 										class="w-28 rounded-lg border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:text-accent-strong"
 										onclick={(clickEvent) => {
 											clickEvent.stopPropagation();
-											copyQuery(detail.query_text);
+											// Until the whole row arrives, the text on
+											// screen is the listing's cut copy, so what
+											// goes on the clipboard has to say so.
+											copyQuery(
+												statementForCopy(
+													fullEvent
+														? wholeStatement(fullEvent.query_text)
+														: listedStatement(detail.query_text),
+												),
+											);
 										}}
 									>
 										{copied ? 'Copied' : 'Copy query'}

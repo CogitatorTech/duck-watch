@@ -80,6 +80,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             overlap: chrono::Duration::minutes(config.ingest_overlap_minutes),
             batch_limit: config.ingest_batch_limit,
             backfill_limit: config.ingest_backfill_limit,
+            storage_interval: chrono::Duration::seconds(config.ingest_storage_interval_seconds),
         },
     );
 

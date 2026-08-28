@@ -128,6 +128,13 @@
 	let failures = $state<QueryEvent[]>([]);
 	let loading = $state(false);
 	let errorMessage = $state<string | null>(null);
+	/**
+	 * The last refresh failed, whether it ran in the background or not. The
+	 * foreground error below stays quiet on a background failure, so that a
+	 * blip does not flash a message, but the figures are stale either way and
+	 * something has to say so.
+	 */
+	let refreshFailed = $state(false);
 	// Only the latest request may write its results, so a slow response for an
 	// old selection cannot overwrite a newer one.
 	let requestSequence = 0;
@@ -207,10 +214,14 @@
 			shapes = nextShapes;
 			insights = nextInsights;
 			errorMessage = null;
+			refreshFailed = false;
 		} catch {
-			// A failed background refresh keeps the stale data on screen.
-			if (sequence === requestSequence && !background) {
-				errorMessage = 'Could not load the dashboard data.';
+			// The last good data stays on screen either way.
+			if (sequence === requestSequence) {
+				refreshFailed = true;
+				if (!background) {
+					errorMessage = 'Could not load the dashboard data.';
+				}
 			}
 		} finally {
 			if (sequence === requestSequence) loading = false;
@@ -224,7 +235,10 @@
 	});
 
 	$effect(() => {
-		const timer = setInterval(() => refresh(true), REFRESH_INTERVAL_MS);
+		const timer = setInterval(() => {
+			clock = Date.now();
+			refresh(true);
+		}, REFRESH_INTERVAL_MS);
 		return () => clearInterval(timer);
 	});
 
@@ -235,23 +249,68 @@
 		return () => clearTimeout(timer);
 	});
 
-	// An ISO instant per end, or nothing when the custom range is incomplete.
-	let customRange = $derived.by(() => {
-		if (!fromInput) return {};
+	/*
+	 * The clock a pending start is compared against. It ticks with the
+	 * refresh interval, so a start typed ahead of now takes effect once the
+	 * instant passes, rather than staying frozen at the value read when the
+	 * field was edited.
+	 */
+	let clock = $state(Date.now());
+
+	/*
+	 * An ISO instant per end, or nothing when the custom range is incomplete.
+	 * An empty end is left out rather than filled in with the time this last
+	 * ran. The backend resolves a missing end to now on every request, while
+	 * a value frozen here would be reused by every later refresh and the page
+	 * would never show anything new again.
+	 * The ends are derived as strings before being folded into an object, so
+	 * a clock tick that changes neither of them does not read as a new range
+	 * and trigger a refetch.
+	 */
+	let customFrom = $derived.by((): string | undefined => {
+		if (!fromInput) return undefined;
 		const from = new Date(fromInput);
-		if (Number.isNaN(from.getTime())) return {};
-		const to = toInput ? new Date(toInput) : new Date();
-		if (Number.isNaN(to.getTime()) || to <= from) return {};
-		return { from: from.toISOString(), to: to.toISOString() };
+		if (Number.isNaN(from.getTime())) return undefined;
+		// A start in the future would end before it begins once the backend
+		// fills in the missing end, and it rejects that. Treating it as an
+		// unfinished range keeps the page on its preset window instead of
+		// failing every request until the instant passes.
+		if (!toInput) {
+			return from.getTime() >= clock ? undefined : from.toISOString();
+		}
+		const to = new Date(toInput);
+		if (Number.isNaN(to.getTime()) || to <= from) return undefined;
+		return from.toISOString();
+	});
+
+	let customTo = $derived(
+		customFrom !== undefined && toInput ? new Date(toInput).toISOString() : undefined,
+	);
+
+	let customRange = $derived.by((): { from?: string; to?: string } => {
+		if (customFrom === undefined) return {};
+		return customTo === undefined ? { from: customFrom } : { from: customFrom, to: customTo };
 	});
 
 	let rangeActive = $derived('from' in customRange);
 
+	/**
+	 * A refresh failed while earlier figures are still on screen. They are
+	 * kept deliberately, so something has to say they are no longer current.
+	 * When the very first load fails there is nothing to qualify, and the
+	 * chart reports the failure itself.
+	 */
+	let showingStaleData = $derived(refreshFailed && summary !== null);
+
+	// The range is a filter like any other, so it counts here too. Without it
+	// a range that excludes everything reports "no queries in this window
+	// yet", which says the account is empty rather than that the range is.
 	let filtersActive = $derived(
 		search !== '' ||
 			userFilter !== '' ||
 			typeFilter !== '' ||
 			shapeFilter !== '' ||
+			rangeActive ||
 			(Number(minSeconds) || 0) > 0,
 	);
 
@@ -265,11 +324,18 @@
 	// show the queries behind it.
 	const zoomToBucket = (bucket: LatencyBucket) => {
 		const start = new Date(bucket.bucket_start);
+		// With one bucket there is no neighbour to measure against, and that
+		// bucket covers the whole range on screen, so the range on screen is
+		// the best guess at its width; the custom range when one is active,
+		// and the preset window otherwise. The preset alone would zoom out
+		// rather than in once a custom range narrower than it is set.
 		const width =
 			buckets.length > 1
 				? new Date(buckets[1].bucket_start).getTime() -
 					new Date(buckets[0].bucket_start).getTime()
-				: 60_000;
+				: customFrom !== undefined
+					? new Date(customTo ?? Date.now()).getTime() - new Date(customFrom).getTime()
+					: (windows.find((option) => option.value === window)?.ms ?? 86_400_000);
 		fromInput = toInputValue(start);
 		toInput = toInputValue(new Date(start.getTime() + width));
 	};
@@ -304,6 +370,9 @@
 		userFilter = '';
 		typeFilter = '';
 		minSeconds = '';
+		// The range narrows the page like the rest, so clearing the filters
+		// that counted it has to clear it as well.
+		clearRange();
 	};
 
 	let instanceDetail = $derived(
@@ -527,7 +596,19 @@
 		</Panel>
 	</div>
 
-	<div class="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6" aria-busy={loading}>
+	<!--
+		The background refresh runs every thirty seconds, so this comes and
+		goes on its own rather than only when someone acts. It holds its slot,
+		or every figure on the page would jump each time the backend blinks.
+		The Refresh button above is the retry.
+	-->
+	<p class="mt-6 min-h-5 text-sm text-danger" aria-live="polite">
+		{showingStaleData
+			? 'Could not refresh. The figures below are from the last load that worked.'
+			: ''}
+	</p>
+
+	<div class="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6" aria-busy={loading}>
 		<StatTile
 			label="Queries"
 			value={String(summary?.query_count ?? '-')}

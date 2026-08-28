@@ -40,7 +40,9 @@ Quick examples:
 
 - Write in simple, plain English. Use short sentences and everyday words.
 - Use Oxford commas in inline lists: "a, b, and c" not "a, b, c".
-- Do not use em dashes. Restructure the sentence, or use a colon or semicolon instead.
+- Do not use em dashes. Restructure the sentence or use a semicolon instead.
+- Avoid colons in the middle of sentences, in new prose. A colon that introduces a code block or a list is fine;
+  existing text is reworded when it is touched anyway, not in a sweep.
 - Avoid colorful adjectives and adverbs. Write "adjacency query" not "blazing adjacency query".
 - Prefer noun phrases for checklist items over imperative verbs. Write "temp directory teardown" not "tear down the temp directory".
 - Headings in Markdown files must be in title case: "Build from Source" not "Build from source". Minor words (a, an, the, and, but, or, for, in, on,
@@ -52,7 +54,7 @@ Quick examples:
 - Start each sentence with a capital letter, capitalize proper nouns (Rust, PostgreSQL, SvelteKit, TypeScript), and leave common nouns lowercase
   in the middle of a sentence.
 - Write correct and complete sentences.
-- Avoid made-up words, abbreviations, and colons in the middle of sentences.
+- Avoid made-up words and abbreviations.
 - Use participial phrases scarcely.
 
 ## Architecture Constraints
@@ -91,6 +93,13 @@ Quick examples:
 - Two poller passes catch up on data recorded before a feature existed: `backfill_fingerprints` and
   `backfill_antipatterns`, both bounded by `ingest_backfill_limit`. A shape examined and found clean stores an empty
   array rather than null, so it is not examined again. Either pass failing must never stall the sync.
+- The ingestion watermark only ever moves forward. History is read oldest first under a row limit, so a batch cut short
+  by that limit can end earlier than the watermark it started from, and storing that would walk the next fetch further
+  back again. The overlap that catches late-published rows is skipped while a connection is catching up, because a
+  full batch means the rows still owed sit past the watermark and reading the same window again would crowd them out
+  for good. The history filter is inclusive of the instant it starts from, because a catching-up pass starts exactly at
+  the watermark and rows can share that millisecond with it, so an exclusive filter would drop them and nothing would
+  read them again.
 - `last_synced_at` records the last attempt, whether or not it worked; `last_success_at` records the last success. Both
   are needed, or a connection failing for days is indistinguishable from one that just succeeded. A failed pass passes
   `None` for the success time, and the update coalesces so the stored one survives.
@@ -99,7 +108,7 @@ Quick examples:
   token out of driver errors.
 - Configuration comes from environment variables parsed in `backend/src/config.rs`; `make run-backend` copies
   `backend/.env.example` to `backend/.env` when missing, and `make run-web` does the same for `web/.env.example`
-  (`VITE_API_URL`).
+  (`VITE_API_URL`, which only the development server needs; see the same-origin rule under Frontend Conventions).
 - Never commit real secrets. The `.env` files are gitignored, and example values belong in the `.env.example` files.
 
 ## Product Facts Worth Knowing
@@ -128,6 +137,22 @@ These have each caused a wrong assumption at least once, and each is verified ag
   agent behavior nor the shape of a statement has to be relied on alone.
 - The query history view reports durations as intervals and has no rows read column. Ingestion converts intervals to
   milliseconds in SQL and reads timestamps as epoch milliseconds, which avoids any dependence on session time zone.
+- MotherDuck refreshes `storage_info` every one to six hours, and its own documentation says so, while
+  `storage_info_history` publishes one set of results a day however often the latest figures are recomputed. Reading
+  storage on the query poll interval therefore bills the account for hundreds of identical reads a day, so ingestion
+  reads it on `ingest_storage_interval_seconds` instead, defaulting to an hour. The attempt is recorded whether or not
+  it worked, because a token without the storage permission fails every pass and is exactly the case worth backing off.
+  That timer lives in the poller rather than a column, so a restart costs one extra read instead of a migration.
+- Latency is elapsed time; cost is execution time. A reader waited the elapsed time, so the percentiles, the duration
+  sort, the minimum duration filter, and the worst run column all read `total_elapsed_time_ms`. A Duckling only worked
+  the execution time, and MotherDuck defines wait time as time a query spends queued while other queries hold the
+  execution threads, so pricing reads `execution_time_ms` and falls back to elapsed only where that column is null.
+  Pricing on elapsed time charged the waiting query for seconds the running one was already charged for, and put
+  queries that were merely blocked near the top of the cost lists.
+- The Pulse floor of one second applies to each run, not to a group total. A group is priced from the total, the run
+  count, and how many runs came in under the floor along with the time they took, all of which the store counts and
+  the tier turns into money. Flooring the total instead undercharges any group that mixes short runs with long ones,
+  which by-user attribution does by construction.
 - Compute estimates attribute Duckling time to individual queries. MotherDuck bills Standard and larger Ducklings for
   uptime instead, so concurrent queries share compute that DuckWatch charges to each of them, and idle Duckling time
   appears nowhere. Storage bills on average monthly usage, so it is reported as a monthly run rate rather than a charge
@@ -152,13 +177,20 @@ These have each caused a wrong assumption at least once, and each is verified ag
 - Text that distinguishes one row from another, such as a user name or an error type, must stay fully readable. A
   hover-only tooltip is not recovery for truncated text.
 - Sections are framed with `Panel.svelte`. A component placed inside a panel must not draw its own frame.
+- The API shares the page's origin. `web/src/lib/services/api/index.ts` falls back to a relative `/api/v1`, and
+  `web/nginx.conf` proxies `/api/` to `backend:8080`, so the published image carries no backend URL and runs anywhere
+  without a rebuild. Do not reintroduce a `VITE_API_URL` build argument in a Dockerfile or a compose file. It is a
+  development-only override for the Vite server, which has no proxy of its own. The published image was once built
+  without it and shipped `undefined` in place of the URL, which is the failure this arrangement removes.
 - Timestamps are absolute instants everywhere. Render them through `formatTimestamp` in
   `web/src/lib/services/time.svelte.ts`, which names the zone and honors the local or UTC choice. The health banner is
   the one exception, and it reports ages relative to now, because a reader there wants the gap rather than the instant.
-- Empty, loading, and error are three different states. An empty result must say whether there is no data or whether
-  the filters excluded it, and a failed load must keep the last good data on screen with a retry. Each table says this
-  for itself through its own empty message. The filter controls carry no notice of their own, because one that appears
-  and disappears changes the height of the panel above every figure on the page.
+- Empty, loading, and error are three different states. An empty result must say whether there is no data or whether the
+  filters excluded it, and a failed load must keep the last good data on screen with a retry. That covers the route
+  loader as well. A `load` that lets an API failure escape replaces the whole page with the framework's error screen,
+  which honors none of these rules, so `routes/+page.ts` catches the failure and hands the page a `loadFailed` flag to
+  report itself. Each table says this for itself through its own empty message. The filter controls carry no notice of
+  their own, because one that appears and disappears changes the height of the panel above every figure on the page.
 - Ingestion state qualifies every number on the page, so the health banner sits above them and says what a stale or
   failing connection means for the figures below. A healthy connection still occupies the same slot, since a banner
   that appears and disappears moves the page.
@@ -172,6 +204,19 @@ These have each caused a wrong assumption at least once, and each is verified ag
 - Every field in `ListOptions` must be serialized by `params` in `web/src/lib/services/api/dashboard.ts`. A field the
   type declares and the builder skips leaves a filter that changes nothing on screen while the row still highlights,
   which is how the shape filter went unnoticed. A test in `web/test/dashboard-api.test.ts` covers the shape field.
+
+## Test-driven Development
+
+Fix bugs and add behavior red-green. Write a failing test first, watch it fail, then write the code that makes it
+pass. The failing run is the point, because it proves the test can catch the bug it exists to prevent. A test written
+after the fix has never seen the old code fail and may pass for the wrong reason.
+
+- Name each test as a sentence about behavior, in the style of the existing suites. Write
+  `a_pulse_group_bills_at_least_one_second_per_query`, not `test_pulse_floor`.
+- One regression test per bug, asserting the behavior that was wrong, not the implementation that fixed it.
+- Refactoring that changes no behavior needs no new test; the existing suite staying green is the check.
+- When a failing test cannot come first, such as a pure layout change in the frontend, say so in the PR description
+  rather than skipping the step silently.
 
 ## Required Validation
 

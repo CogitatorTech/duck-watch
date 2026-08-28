@@ -32,6 +32,27 @@ const BYTES_PER_GB: f64 = 1_000_000_000.0;
 /// short query still costs a second.
 const PULSE_MINIMUM_SECONDS: f64 = 1.0;
 
+/// The same floor in milliseconds, so the store can count the runs that fall
+/// under it without knowing what it is for. A test keeps the two in step.
+pub const PULSE_MINIMUM_MS: i64 = 1000;
+
+/// What a group of runs on one Duckling size needs to be priced.
+///
+/// The Pulse floor applies to each run, so a total and a count are not enough
+/// to work out what a group owes. The store also counts the runs that came in
+/// under the floor and how long they took, which is all the tier needs to
+/// raise each of them to the minimum without seeing them one by one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GroupRuntime {
+    /// Billed time across the group, before any floor.
+    pub total_ms: i64,
+    /// Runs that came in under the floor, and the time they took. A run with
+    /// no duration reported counts here too, so it still bills the minimum
+    /// rather than nothing at all.
+    pub sub_second_count: i64,
+    pub sub_second_ms: i64,
+}
+
 impl RegionTier {
     pub fn parse(raw: &str) -> Result<Self> {
         match raw.trim().to_lowercase().as_str() {
@@ -82,10 +103,14 @@ impl RegionTier {
     ) -> Option<f64> {
         let instance_type = instance_type?;
         let rate = self.hourly_rate_usd(instance_type)?;
-        let seconds = (duration_ms?.max(0) as f64) / 1000.0;
         let billable = match instance_type.trim().to_lowercase().as_str() {
-            "pulse" => seconds.max(PULSE_MINIMUM_SECONDS),
-            _ => seconds,
+            // A Pulse run with no reported duration still bills the floor,
+            // the same way the group figures count it, so a row in the query
+            // table never shows nothing while the tiles charge a second.
+            "pulse" => {
+                ((duration_ms.unwrap_or(0).max(0) as f64) / 1000.0).max(PULSE_MINIMUM_SECONDS)
+            }
+            _ => (duration_ms?.max(0) as f64) / 1000.0,
         };
         Some(billable / 3600.0 * rate)
     }
@@ -108,20 +133,20 @@ impl RegionTier {
     }
 
     /// Estimates the cost of a group of runs on one Duckling size. The Pulse
-    /// floor applies per query, so the group bills at least one second each.
-    pub fn estimate_group_cost_usd(
-        self,
-        instance_type: &str,
-        total_ms: i64,
-        query_count: i64,
-    ) -> f64 {
+    /// floor applies per query, so each run under a second bills a full one
+    /// and the rest keep their own time. Flooring the group total instead
+    /// would undercharge any group that mixes short runs with long ones.
+    pub fn estimate_group_cost_usd(self, instance_type: &str, runtime: GroupRuntime) -> f64 {
         let Some(rate) = self.hourly_rate_usd(instance_type) else {
             return 0.0;
         };
-        let seconds = (total_ms.max(0) as f64) / 1000.0;
         let billable = match instance_type.trim().to_lowercase().as_str() {
-            "pulse" => seconds.max(query_count.max(0) as f64 * PULSE_MINIMUM_SECONDS),
-            _ => seconds,
+            "pulse" => {
+                let over_floor_ms = runtime.total_ms.max(0) - runtime.sub_second_ms.max(0);
+                (over_floor_ms.max(0) as f64) / 1000.0
+                    + (runtime.sub_second_count.max(0) as f64) * PULSE_MINIMUM_SECONDS
+            }
+            _ => (runtime.total_ms.max(0) as f64) / 1000.0,
         };
         billable / 3600.0 * rate
     }
@@ -194,24 +219,61 @@ mod tests {
         );
     }
 
+    fn runtime(total_ms: i64, sub_second_count: i64, sub_second_ms: i64) -> GroupRuntime {
+        GroupRuntime {
+            total_ms,
+            sub_second_count,
+            sub_second_ms,
+        }
+    }
+
+    #[test]
+    fn the_pulse_floor_reads_the_same_in_both_units() {
+        assert_eq!(PULSE_MINIMUM_MS as f64 / 1000.0, PULSE_MINIMUM_SECONDS);
+    }
+
     #[test]
     fn a_group_bills_the_summed_time() {
-        let cost = RegionTier::Tier1.estimate_group_cost_usd("standard", 7_200_000, 4);
+        let cost = RegionTier::Tier1.estimate_group_cost_usd("standard", runtime(7_200_000, 0, 0));
         assert!((cost - 4.80).abs() < 1e-9, "cost was {cost}");
     }
 
     #[test]
     fn a_pulse_group_bills_at_least_one_second_per_query() {
         // Ten queries of 10 ms each still bill as ten seconds.
-        let cost = RegionTier::Tier1.estimate_group_cost_usd("pulse", 100, 10);
+        let cost = RegionTier::Tier1.estimate_group_cost_usd("pulse", runtime(100, 10, 100));
         let ten_seconds = 10.0 / 3600.0 * 0.60;
         assert!((cost - ten_seconds).abs() < 1e-12, "cost was {cost}");
     }
 
     #[test]
+    fn a_pulse_group_floors_each_short_run_rather_than_the_total() {
+        // One run of 0.1 s and one of 10 s. Raising the short run to a second
+        // gives eleven seconds. Flooring the 10.1 s total against a floor of
+        // two seconds would leave it at 10.1 and undercharge the group, which
+        // is what the summary tiles and the attribution table used to do.
+        let cost = RegionTier::Tier1.estimate_group_cost_usd("pulse", runtime(10_100, 1, 100));
+        let eleven_seconds = 11.0 / 3600.0 * 0.60;
+        assert!((cost - eleven_seconds).abs() < 1e-12, "cost was {cost}");
+
+        let floored_total = 10.1 / 3600.0 * 0.60;
+        assert!(
+            cost > floored_total,
+            "the group has to cost more than {floored_total}"
+        );
+    }
+
+    #[test]
+    fn a_pulse_group_of_long_runs_is_not_floored_at_all() {
+        let cost = RegionTier::Tier1.estimate_group_cost_usd("pulse", runtime(20_000, 0, 0));
+        let twenty_seconds = 20.0 / 3600.0 * 0.60;
+        assert!((cost - twenty_seconds).abs() < 1e-12, "cost was {cost}");
+    }
+
+    #[test]
     fn an_unknown_group_size_costs_nothing() {
         assert_eq!(
-            RegionTier::Tier1.estimate_group_cost_usd("titan", 1000, 1),
+            RegionTier::Tier1.estimate_group_cost_usd("titan", runtime(1000, 0, 0)),
             0.0
         );
     }
@@ -223,9 +285,20 @@ mod tests {
             None
         );
         assert_eq!(
-            RegionTier::Tier1.estimate_cost_usd(Some("pulse"), None),
+            RegionTier::Tier1.estimate_cost_usd(Some("standard"), None),
             None
         );
         assert_eq!(RegionTier::Tier1.estimate_cost_usd(None, Some(1000)), None);
+    }
+
+    #[test]
+    fn a_pulse_run_with_no_duration_bills_the_floor() {
+        // The group figures count such a run as under the floor, so the per
+        // event estimate has to bill the same second or the visible rows
+        // would never sum to the visible totals.
+        let unreported = RegionTier::Tier1.estimate_cost_usd(Some("pulse"), None);
+        let floored = RegionTier::Tier1.estimate_cost_usd(Some("pulse"), Some(PULSE_MINIMUM_MS));
+        assert_eq!(unreported, floored);
+        assert!(unreported.is_some());
     }
 }
