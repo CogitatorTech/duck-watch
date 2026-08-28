@@ -7,6 +7,9 @@
 		insightCopy,
 		shapeEvidence,
 		statementForCopy,
+		wholeStatement,
+		listedStatement,
+		type Statement,
 	} from '$lib/services/insights';
 	import { previewSql } from '$lib/services/sql';
 	import { formatTimestamp } from '$lib/services/time.svelte';
@@ -57,15 +60,16 @@
 	 * The whole statement for a shape. The listing carries a cut copy, so this
 	 * reads the stored one and falls back to the cut copy if that read fails.
 	 */
-	const fullStatement = async (fingerprint: string, listed: string): Promise<string> => {
+	const fullStatement = async (fingerprint: string, listed: string): Promise<Statement> => {
 		const known = fullStatements[fingerprint];
-		if (known !== undefined) return known;
+		if (known !== undefined) return wholeStatement(known);
 		try {
 			const { example_sql } = await getShapeStatement(connectionId, fingerprint);
 			fullStatements[fingerprint] = example_sql;
-			return example_sql;
+			return wholeStatement(example_sql);
 		} catch {
-			return statementForCopy(listed);
+			// The read failed, so the listing's cut copy is all there is.
+			return listedStatement(listed);
 		}
 	};
 </script>
@@ -158,7 +162,9 @@
 						onclick={async () =>
 							toClipboard(
 								`sql:${shape.fingerprint}`,
-								await fullStatement(shape.fingerprint, shape.example_sql),
+								statementForCopy(
+									await fullStatement(shape.fingerprint, shape.example_sql),
+								),
 							)}
 					>
 						{copiedKey === `sql:${shape.fingerprint}` ? 'Copied' : 'Copy query'}

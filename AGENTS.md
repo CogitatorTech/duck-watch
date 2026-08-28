@@ -95,7 +95,9 @@ Quick examples:
   by that limit can end earlier than the watermark it started from, and storing that would walk the next fetch further
   back again. The overlap that catches late-published rows is skipped while a connection is catching up, because a
   full batch means the rows still owed sit past the watermark and reading the same window again would crowd them out
-  for good.
+  for good. The history filter is inclusive of the instant it starts from, because a catching-up pass starts exactly at
+  the watermark and rows can share that millisecond with it, so an exclusive filter would drop them and nothing would
+  read them again.
 - `last_synced_at` records the last attempt, whether or not it worked; `last_success_at` records the last success. Both
   are needed, or a connection failing for days is indistinguishable from one that just succeeded. A failed pass passes
   `None` for the success time, and the update coalesces so the stored one survives.
@@ -139,6 +141,16 @@ These have each caused a wrong assumption at least once, and each is verified ag
   reads it on `ingest_storage_interval_seconds` instead, defaulting to an hour. The attempt is recorded whether or not
   it worked, because a token without the storage permission fails every pass and is exactly the case worth backing off.
   That timer lives in the poller rather than a column, so a restart costs one extra read instead of a migration.
+- Latency is elapsed time; cost is execution time. A reader waited the elapsed time, so the percentiles, the duration
+  sort, the minimum duration filter, and the worst run column all read `total_elapsed_time_ms`. A Duckling only worked
+  the execution time, and MotherDuck defines wait time as time a query spends queued while other queries hold the
+  execution threads, so pricing reads `execution_time_ms` and falls back to elapsed only where that column is null.
+  Pricing on elapsed time charged the waiting query for seconds the running one was already charged for, and put
+  queries that were merely blocked near the top of the cost lists.
+- The Pulse floor of one second applies to each run, not to a group total. A group is priced from the total, the run
+  count, and how many runs came in under the floor along with the time they took, all of which the store counts and
+  the tier turns into money. Flooring the total instead undercharges any group that mixes short runs with long ones,
+  which by-user attribution does by construction.
 - Compute estimates attribute Duckling time to individual queries. MotherDuck bills Standard and larger Ducklings for
   uptime instead, so concurrent queries share compute that DuckWatch charges to each of them, and idle Duckling time
   appears nowhere. Storage bills on average monthly usage, so it is reported as a monthly run rate rather than a charge

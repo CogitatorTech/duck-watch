@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AttributionRow } from '$lib/services/api/dashboard';
-	import { formatMs, formatUsd } from '$lib/services/chart';
+	import { formatMs, formatUsd, totalRunTimeMs } from '$lib/services/chart';
 
 	let {
 		rows,
@@ -118,8 +118,6 @@
 		</table>
 	</div>
 	<p class="mt-1 text-xs text-faint">
-		The total run time attributed is {formatMs(
-			rows.reduce((sum, row) => sum + row.total_ms, 0),
-		)}.
+		The total run time attributed is {formatMs(totalRunTimeMs(rows))}.
 	</p>
 {/if}

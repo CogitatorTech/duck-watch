@@ -6,6 +6,19 @@ use crate::domain::entities::query_events::QueryEventDraft;
 use crate::domain::entities::storage_samples::StorageSampleDraft;
 use crate::domain::error::Result;
 
+/// One page of query history, with how many rows MotherDuck actually returned.
+///
+/// Whether a page filled the limit has to be judged from `rows_returned`
+/// rather than from `drafts`, because a row DuckWatch cannot read is dropped
+/// on the way through. One such row would otherwise make a full page look
+/// short, and the poller would stop paging forward and re-read the same
+/// window for good.
+#[derive(Debug, Default)]
+pub struct QueryHistoryPage {
+    pub drafts: Vec<QueryEventDraft>,
+    pub rows_returned: usize,
+}
+
 /// External-system boundary for MotherDuck itself. The implementation in
 /// `infrastructure/motherduck/` speaks to it through a DuckDB connection.
 #[async_trait]
@@ -21,7 +34,7 @@ pub trait MotherDuckClient: Send + Sync {
         token: &MotherDuckToken,
         since: Option<DateTime<Utc>>,
         limit: u32,
-    ) -> Result<Vec<QueryEventDraft>>;
+    ) -> Result<QueryHistoryPage>;
 
     /// Reads per database storage. This needs a wider permission than the
     /// query history does, so a caller must tolerate it failing on its own.
@@ -39,7 +52,7 @@ mockall::mock! {
             token: &MotherDuckToken,
             since: Option<DateTime<Utc>>,
             limit: u32,
-        ) -> Result<Vec<QueryEventDraft>>;
+        ) -> Result<QueryHistoryPage>;
         async fn fetch_storage(&self, token: &MotherDuckToken) -> Result<Vec<StorageSampleDraft>>;
     }
 }

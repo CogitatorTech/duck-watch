@@ -8,7 +8,9 @@ import {
 	insightCopy,
 	insightEvidence,
 	isStatementCut,
+	listedStatement,
 	statementForCopy,
+	wholeStatement,
 } from '../src/lib/services/insights';
 
 const ALL: Antipattern[] = [
@@ -81,17 +83,17 @@ describe('insightEvidence', () => {
 
 describe('statementForCopy', () => {
 	it('leaves a whole statement alone', () => {
-		expect(statementForCopy('select a from t')).toBe('select a from t');
+		expect(statementForCopy(listedStatement('select a from t'))).toBe('select a from t');
 		expect(isStatementCut('select a from t')).toBe(false);
 	});
 
-	it('says so when the statement was cut', () => {
+	it('says so when the listing cut the statement', () => {
 		// The backend keeps 2000 characters and appends an ellipsis, so
-		// anything longer than the limit is an incomplete query.
+		// anything longer than the limit came back cut.
 		const cut = 'x'.repeat(STATEMENT_LIMIT) + '...';
 		expect(isStatementCut(cut)).toBe(true);
 
-		const copied = statementForCopy(cut);
+		const copied = statementForCopy(listedStatement(cut));
 		expect(copied.startsWith(cut)).toBe(true);
 		expect(copied).toContain('not complete');
 	});
@@ -99,7 +101,21 @@ describe('statementForCopy', () => {
 	it('treats a statement exactly at the limit as whole', () => {
 		const exact = 'x'.repeat(STATEMENT_LIMIT);
 		expect(isStatementCut(exact)).toBe(false);
-		expect(statementForCopy(exact)).toBe(exact);
+		expect(statementForCopy(listedStatement(exact))).toBe(exact);
+	});
+
+	it('does not call a long statement cut when it was read in full', () => {
+		// The read for the whole statement has no length limit, so calling a
+		// complete query incomplete would be the interface asserting
+		// something untrue about the reader's own SQL.
+		const long = 'x'.repeat(STATEMENT_LIMIT + 500);
+		expect(statementForCopy(wholeStatement(long))).toBe(long);
+	});
+
+	it('marks a cut statement once, not once per hand-off', () => {
+		const cut = 'x'.repeat(STATEMENT_LIMIT) + '...';
+		const copied = statementForCopy(listedStatement(cut));
+		expect(copied.split('not complete').length - 1).toBe(1);
 	});
 });
 
@@ -177,7 +193,7 @@ describe('findingAsText', () => {
 				}),
 			])[0],
 			'$12.34',
-			'select * from big',
+			wholeStatement('select * from big'),
 		);
 
 	it('carries what the reader needs to act without the dashboard', () => {
@@ -209,7 +225,7 @@ describe('findingAsText', () => {
 		const out = findingAsText(
 			groupByShape([insight('select_star')])[0],
 			'$1.00',
-			'x'.repeat(STATEMENT_LIMIT) + '...',
+			listedStatement('x'.repeat(STATEMENT_LIMIT) + '...'),
 		);
 		expect(out).toContain('not complete');
 	});
@@ -218,7 +234,7 @@ describe('findingAsText', () => {
 		const out = findingAsText(
 			groupByShape([insight('select_star', { example_sql: 'select * from cut...' })])[0],
 			'$1.00',
-			'select a, b from whole',
+			wholeStatement('select a, b from whole'),
 		);
 		expect(out).toContain('select a, b from whole');
 		expect(out).not.toContain('cut...');

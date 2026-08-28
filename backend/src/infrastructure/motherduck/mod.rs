@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::application::services::motherduck::MotherDuckClient;
+use crate::application::services::motherduck::{MotherDuckClient, QueryHistoryPage};
 use crate::domain::entities::motherduck_connections::MotherDuckToken;
 use crate::domain::entities::query_events::{DUCKWATCH_USER_AGENT, QueryEventDraft};
 use crate::domain::entities::storage_samples::StorageSampleDraft;
@@ -94,20 +94,32 @@ fn timestamp_from_ms(ms: i64) -> Result<DateTime<Utc>> {
         .ok_or_else(|| Error::External(anyhow::anyhow!("timestamp out of range: {ms}")))
 }
 
+/// The filter clause for a fetch starting at `since`, with the value to bind.
+///
+/// The comparison is inclusive. `since` is often the ingestion watermark,
+/// which is the newest `start_time` already stored, and other rows can share
+/// that millisecond. An exclusive filter would skip those for good on a pass
+/// that starts exactly at the watermark, which is what a connection still
+/// catching up does. Re-reading a row costs nothing, because the event write
+/// is an upsert.
+fn history_filter(since: Option<DateTime<Utc>>) -> (&'static str, Option<i64>) {
+    match since {
+        Some(since) => (
+            " where epoch_ms(start_time) >= ?",
+            Some(since.timestamp_millis()),
+        ),
+        None => ("", None),
+    }
+}
+
 fn fetch_blocking(
     token: &MotherDuckToken,
     since: Option<DateTime<Utc>>,
     limit: u32,
-) -> Result<Vec<QueryEventDraft>> {
+) -> Result<QueryHistoryPage> {
     let connection = open(token)?;
 
-    let (filter, since_ms) = match since {
-        Some(since) => (
-            " where epoch_ms(start_time) > ?",
-            Some(since.timestamp_millis()),
-        ),
-        None => ("", None),
-    };
+    let (filter, since_ms) = history_filter(since);
     let sql = format!("{HISTORY_QUERY}{filter} order by start_time limit {limit}");
 
     let map_row = |row: &duckdb::Row<'_>| -> std::result::Result<QueryEventDraft, duckdb::Error> {
@@ -155,15 +167,48 @@ fn fetch_blocking(
     let raw_rows =
         run().map_err(|err| Error::External(anyhow::anyhow!(scrub(err.to_string(), token))))?;
 
-    raw_rows
+    let rows_returned = raw_rows.len();
+    Ok(QueryHistoryPage {
+        drafts: readable_drafts(raw_rows),
+        rows_returned,
+    })
+}
+
+/// Keeps the rows DuckWatch can read and drops the rest.
+///
+/// A row with an unreadable id or timestamp used to fail the whole fetch,
+/// which left the watermark where it was, so the next pass read the same row
+/// and the connection never moved again. Skipping costs one row; failing
+/// costs every row after it. If every row in a batch were unreadable the
+/// watermark would still not move, but that needs the whole view to be
+/// corrupt rather than one row.
+fn readable_drafts(raw_rows: Vec<(String, i64, QueryEventDraft)>) -> Vec<QueryEventDraft> {
+    let mut unreadable: Vec<String> = Vec::new();
+    let drafts: Vec<QueryEventDraft> = raw_rows
         .into_iter()
-        .map(|(id, start_ms, mut draft)| {
-            draft.md_query_id = Uuid::parse_str(&id)
-                .map_err(|err| Error::External(anyhow::anyhow!("bad query id {id}: {err}")))?;
-            draft.start_time = timestamp_from_ms(start_ms)?;
-            Ok(draft)
+        .filter_map(|(id, start_ms, mut draft)| {
+            match (Uuid::parse_str(&id), timestamp_from_ms(start_ms)) {
+                (Ok(md_query_id), Ok(start_time)) => {
+                    draft.md_query_id = md_query_id;
+                    draft.start_time = start_time;
+                    Some(draft)
+                }
+                _ => {
+                    unreadable.push(id);
+                    None
+                }
+            }
         })
-        .collect()
+        .collect();
+
+    if !unreadable.is_empty() {
+        tracing::warn!(
+            "skipped {} query history rows that could not be read, starting with id {}",
+            unreadable.len(),
+            unreadable.first().map_or("", String::as_str)
+        );
+    }
+    drafts
 }
 
 fn fetch_storage_blocking(token: &MotherDuckToken) -> Result<Vec<StorageSampleDraft>> {
@@ -238,7 +283,7 @@ impl MotherDuckClient for DuckDbMotherDuckClient {
         token: &MotherDuckToken,
         since: Option<DateTime<Utc>>,
         limit: u32,
-    ) -> Result<Vec<QueryEventDraft>> {
+    ) -> Result<QueryHistoryPage> {
         let token = token.clone();
         tokio::task::spawn_blocking(move || fetch_blocking(&token, since, limit))
             .await
@@ -257,6 +302,70 @@ impl MotherDuckClient for DuckDbMotherDuckClient {
 mod tests {
     use super::*;
     use crate::domain::entities::query_events::DUCKWATCH_SQL_MARKER;
+
+    fn raw_row(id: &str, start_ms: i64) -> (String, i64, QueryEventDraft) {
+        (
+            id.to_string(),
+            start_ms,
+            QueryEventDraft {
+                md_query_id: Uuid::nil(),
+                query_text: "select 1".into(),
+                query_type: None,
+                start_time: DateTime::from_timestamp_millis(0).unwrap_or_default(),
+                end_time: None,
+                execution_time_ms: None,
+                wait_time_ms: None,
+                total_elapsed_time_ms: None,
+                error_type: None,
+                error_message: None,
+                user_name: None,
+                instance_type: None,
+                duckling_id: None,
+                session_name: None,
+                bytes_uploaded: None,
+                bytes_downloaded: None,
+                bytes_spilled_to_disk: None,
+                user_agent: None,
+            },
+        )
+    }
+
+    #[test]
+    fn one_unreadable_row_does_not_cost_the_whole_batch() {
+        // Failing the fetch would leave the watermark unmoved, so the next
+        // pass would read the same row and the connection would never
+        // advance again.
+        let good = Uuid::new_v4();
+        let drafts = readable_drafts(vec![
+            raw_row("not-a-uuid", 1_700_000_000_000),
+            raw_row(&good.to_string(), 1_700_000_000_001),
+            raw_row(&Uuid::new_v4().to_string(), i64::MAX),
+        ]);
+
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].md_query_id, good);
+        assert_eq!(drafts[0].start_time.timestamp_millis(), 1_700_000_000_001);
+    }
+
+    #[test]
+    fn the_history_filter_includes_the_instant_it_starts_from() {
+        // A catching-up pass starts exactly at the watermark, and rows can
+        // share that millisecond with it. An exclusive filter would drop them
+        // and nothing would ever read them again.
+        let (filter, bound) = history_filter(Some(
+            DateTime::from_timestamp_millis(1_700_000_000_000).unwrap_or_default(),
+        ));
+        assert!(filter.contains(">="), "filter was {filter}");
+        assert!(!filter.contains("> ?"), "filter was {filter}");
+        assert_eq!(bound, Some(1_700_000_000_000));
+    }
+
+    #[test]
+    fn the_history_filter_is_empty_without_a_starting_point() {
+        let (filter, bound) = history_filter(None);
+        assert!(filter.is_empty());
+        assert_eq!(bound, None);
+    }
 
     #[test]
     fn percent_encode_escapes_reserved_characters() {
@@ -282,7 +391,7 @@ mod tests {
         // The history query is assembled before it is sent, so the marker has
         // to be on the part that always leads.
         let assembled = format!(
-            "{HISTORY_QUERY} where epoch_ms(start_time) > ? order by start_time limit 5000"
+            "{HISTORY_QUERY} where epoch_ms(start_time) >= ? order by start_time limit 5000"
         );
         assert!(assembled.contains(DUCKWATCH_SQL_MARKER));
         // A leading line comment must not swallow the statement itself.
@@ -315,7 +424,8 @@ mod live_tests {
         let client = DuckDbMotherDuckClient;
 
         client.test_connection(&token).await.unwrap();
-        let drafts = client.fetch_query_history(&token, None, 10).await.unwrap();
-        assert!(drafts.len() <= 10);
+        let page = client.fetch_query_history(&token, None, 10).await.unwrap();
+        assert!(page.rows_returned <= 10);
+        assert!(page.drafts.len() <= page.rows_returned);
     }
 }

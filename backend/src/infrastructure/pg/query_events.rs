@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::application::services::query_events::QueryEventService;
 use crate::domain::entities::insights::Antipattern;
+use crate::domain::entities::pricing::{GroupRuntime, PULSE_MINIMUM_MS};
 use crate::domain::entities::query_events::{
     AttributionCell, AttributionKey, CostBucketCell, DashboardSummary, EventFilter, EventQuery,
     FilterValues, InstanceTypeCount, LatencyBucket, QueryEvent, SortDirection, SortKey, TimeRange,
@@ -96,6 +97,8 @@ struct AttributionRow {
     query_count: i64,
     failure_count: i64,
     total_ms: i64,
+    sub_second_count: i64,
+    sub_second_ms: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -106,6 +109,8 @@ struct ShapeCellRow {
     runs: i64,
     failure_count: i64,
     total_ms: i64,
+    sub_second_count: i64,
+    sub_second_ms: i64,
     max_ms: i64,
     bytes_spilled: i64,
     antipatterns: Option<Vec<String>>,
@@ -125,6 +130,8 @@ struct CostBucketRow {
     instance_type: String,
     query_count: i64,
     total_ms: i64,
+    sub_second_count: i64,
+    sub_second_ms: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -132,6 +139,34 @@ struct InstanceTypeRow {
     instance_type: String,
     query_count: i64,
     total_ms: i64,
+    sub_second_count: i64,
+    sub_second_ms: i64,
+}
+
+/// The duration compute is priced from, in SQL. This is
+/// `QueryEvent::billed_duration_ms` for the group figures, and the reasoning
+/// lives on that method; a change to one is a change to both. Latency figures
+/// use elapsed time instead, because that is what the reader waited, so the
+/// percentiles, the duration sort, and the minimum duration filter stay on it.
+const BILLED_MS: &str = "coalesce(e.execution_time_ms, e.total_elapsed_time_ms)";
+
+/// The three numbers a group needs to be priced, as one column list.
+///
+/// Written once so the tiles, the chart, the attribution table, and the
+/// shapes list cannot drift apart. A run with no duration reported at all
+/// counts as under the floor rather than dropping out of both figures, or it
+/// would price at nothing where it used to bill the minimum.
+fn group_runtime_columns() -> String {
+    format!(
+        "coalesce(sum({BILLED_MS}), 0)::bigint as total_ms,
+                    count(*) filter (where coalesce({BILLED_MS}, 0) < {PULSE_MINIMUM_MS})::bigint
+                        as sub_second_count,
+                    coalesce(
+                        sum({BILLED_MS}) filter (
+                            where coalesce({BILLED_MS}, 0) < {PULSE_MINIMUM_MS}
+                        ), 0
+                    )::bigint as sub_second_ms"
+    )
 }
 
 /// The filter predicates every read shares, as bind placeholders $2 through
@@ -320,10 +355,11 @@ impl QueryEventService for PgQueryEventService {
             .fetch_one(&self.db)
             .await?;
 
+        let runtime_columns = group_runtime_columns();
         let instance_types = sqlx::query_as::<_, InstanceTypeRow>(AssertSqlSafe(format!(
             "select coalesce(e.instance_type, 'unknown') as instance_type,
                     count(*) as query_count,
-                    coalesce(sum(e.total_elapsed_time_ms), 0)::bigint as total_ms
+                    {runtime_columns}
              from query_events e
              where e.connection_id = $1 and {FILTER_PREDICATES}
              group by 1
@@ -344,6 +380,11 @@ impl QueryEventService for PgQueryEventService {
                     instance_type: row.instance_type,
                     query_count: row.query_count,
                     total_ms: row.total_ms,
+                    runtime: GroupRuntime {
+                        total_ms: row.total_ms,
+                        sub_second_count: row.sub_second_count,
+                        sub_second_ms: row.sub_second_ms,
+                    },
                     // Priced by the use case, which knows the region tier.
                     estimated_cost_usd: 0.0,
                 })
@@ -419,11 +460,12 @@ impl QueryEventService for PgQueryEventService {
     ) -> Result<Vec<CostBucketCell>> {
         let bucket_seconds = filter.range.bucket_size().num_seconds();
 
+        let runtime_columns = group_runtime_columns();
         let rows = sqlx::query_as::<_, CostBucketRow>(AssertSqlSafe(format!(
             "select date_bin(make_interval(secs => $10), e.start_time, $2) as bucket_start,
                     coalesce(e.instance_type, 'unknown') as instance_type,
                     count(*) as query_count,
-                    coalesce(sum(e.total_elapsed_time_ms), 0)::bigint as total_ms
+                    {runtime_columns}
              from query_events e
              where e.connection_id = $1 and {FILTER_PREDICATES}
              group by 1, 2"
@@ -439,7 +481,11 @@ impl QueryEventService for PgQueryEventService {
                 bucket_start: row.bucket_start,
                 instance_type: row.instance_type,
                 query_count: row.query_count,
-                total_ms: row.total_ms,
+                runtime: GroupRuntime {
+                    total_ms: row.total_ms,
+                    sub_second_count: row.sub_second_count,
+                    sub_second_ms: row.sub_second_ms,
+                },
             })
             .collect())
     }
@@ -457,12 +503,13 @@ impl QueryEventService for PgQueryEventService {
             AttributionKey::InstanceType => "instance_type",
         };
 
+        let runtime_columns = group_runtime_columns();
         let rows = sqlx::query_as::<_, AttributionRow>(AssertSqlSafe(format!(
             "select coalesce(e.{key_column}, 'unknown') as key,
                     coalesce(e.instance_type, 'unknown') as instance_type,
                     count(*) as query_count,
                     count(*) filter (where e.error_type is not null) as failure_count,
-                    coalesce(sum(e.total_elapsed_time_ms), 0)::bigint as total_ms
+                    {runtime_columns}
              from query_events e
              where e.connection_id = $1 and {FILTER_PREDICATES}
              group by 1, 2"
@@ -478,7 +525,11 @@ impl QueryEventService for PgQueryEventService {
                 instance_type: row.instance_type,
                 query_count: row.query_count,
                 failure_count: row.failure_count,
-                total_ms: row.total_ms,
+                runtime: GroupRuntime {
+                    total_ms: row.total_ms,
+                    sub_second_count: row.sub_second_count,
+                    sub_second_ms: row.sub_second_ms,
+                },
             })
             .collect())
     }
@@ -563,13 +614,14 @@ impl QueryEventService for PgQueryEventService {
         // Grouped by shape and size, because pricing depends on the size.
         // The example comes from the shapes table, so the long statement text
         // is not part of the grouping key.
+        let runtime_columns = group_runtime_columns();
         let rows = sqlx::query_as::<_, ShapeCellRow>(AssertSqlSafe(format!(
             "select e.fingerprint as fingerprint,
                     coalesce(e.instance_type, 'unknown') as instance_type,
                     min(s.example_sql) as example_sql,
                     count(*) as runs,
                     count(*) filter (where e.error_type is not null) as failure_count,
-                    coalesce(sum(e.total_elapsed_time_ms), 0)::bigint as total_ms,
+                    {runtime_columns},
                     coalesce(max(e.total_elapsed_time_ms), 0)::bigint as max_ms,
                     coalesce(sum(e.bytes_spilled_to_disk), 0)::bigint as bytes_spilled,
                     min(s.antipatterns) as antipatterns,
@@ -593,7 +645,11 @@ impl QueryEventService for PgQueryEventService {
                 example_sql: row.example_sql.unwrap_or_default(),
                 runs: row.runs,
                 failure_count: row.failure_count,
-                total_ms: row.total_ms,
+                runtime: GroupRuntime {
+                    total_ms: row.total_ms,
+                    sub_second_count: row.sub_second_count,
+                    sub_second_ms: row.sub_second_ms,
+                },
                 max_ms: row.max_ms,
                 bytes_spilled: row.bytes_spilled,
                 // A name this release does not know, written by a later one,
@@ -784,6 +840,70 @@ mod integration_tests {
             user_agent: Some("duckdb/1.5.2 duckwatch".into()),
         }
         .into_event(connection_id, Utc::now())
+    }
+
+    #[sqlx::test]
+    async fn a_run_with_no_duration_still_counts_under_the_pulse_floor(pool: Pool<Postgres>) {
+        // Both duration columns are nullable, and a row reported without them
+        // used to bill the one second minimum through the plain query count.
+        // Falling out of the total and the short run count alike would price
+        // it at nothing instead.
+        let connection_id = seed_connection(&pool).await;
+        let service = PgQueryEventService::new(pool);
+
+        let mut blank = event(connection_id, 100, 5, None);
+        blank.execution_time_ms = None;
+        blank.total_elapsed_time_ms = None;
+        service.upsert_batch(vec![blank]).await.unwrap();
+
+        let cells = service
+            .attribution_cells(connection_id, day_filter(), AttributionKey::InstanceType)
+            .await
+            .unwrap();
+
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].runtime.total_ms, 0);
+        assert_eq!(cells[0].runtime.sub_second_count, 1);
+        assert_eq!(cells[0].runtime.sub_second_ms, 0);
+
+        // Which is what makes it bill the minimum rather than nothing.
+        let cost = RegionTier::Tier1.estimate_group_cost_usd("pulse", cells[0].runtime);
+        assert!(cost > 0.0, "cost was {cost}");
+    }
+
+    #[sqlx::test]
+    async fn group_cells_bill_execution_time_and_count_the_short_runs(pool: Pool<Postgres>) {
+        // Both queries spent most of their life queued. Billing that time
+        // would charge them for seconds other queries were using, and would
+        // float them to the top of the cost lists they do not belong on.
+        let connection_id = seed_connection(&pool).await;
+        let service = PgQueryEventService::new(pool);
+
+        let mut long_run = event(connection_id, 10_000, 5, None);
+        long_run.execution_time_ms = Some(10_000);
+        long_run.total_elapsed_time_ms = Some(70_000);
+
+        let mut short_run = event(connection_id, 200, 5, None);
+        short_run.execution_time_ms = Some(200);
+        short_run.total_elapsed_time_ms = Some(60_200);
+
+        service
+            .upsert_batch(vec![long_run, short_run])
+            .await
+            .unwrap();
+
+        let cells = service
+            .attribution_cells(connection_id, day_filter(), AttributionKey::InstanceType)
+            .await
+            .unwrap();
+
+        assert_eq!(cells.len(), 1);
+        // 10.2 seconds of running, not the 130.2 seconds they were alive.
+        assert_eq!(cells[0].runtime.total_ms, 10_200);
+        // And the store says which of them fell under the Pulse floor, so the
+        // tier can raise that one to a second on its own.
+        assert_eq!(cells[0].runtime.sub_second_count, 1);
+        assert_eq!(cells[0].runtime.sub_second_ms, 200);
     }
 
     #[sqlx::test]
@@ -1078,7 +1198,7 @@ mod integration_tests {
             .unwrap();
         let alice = by_user.iter().find(|cell| cell.key == "alice").unwrap();
         assert_eq!(alice.query_count, 2);
-        assert_eq!(alice.total_ms, 300);
+        assert_eq!(alice.runtime.total_ms, 300);
         assert_eq!(alice.instance_type, "pulse");
 
         let bob_cell = by_user.iter().find(|cell| cell.key == "bob").unwrap();
@@ -1112,7 +1232,10 @@ mod integration_tests {
         // Same bucket, one row per Duckling size.
         assert_eq!(cells.len(), 2);
         assert_eq!(cells[0].bucket_start, cells[1].bucket_start);
-        assert_eq!(cells.iter().map(|cell| cell.total_ms).sum::<i64>(), 600);
+        assert_eq!(
+            cells.iter().map(|cell| cell.runtime.total_ms).sum::<i64>(),
+            600
+        );
     }
 
     #[sqlx::test]

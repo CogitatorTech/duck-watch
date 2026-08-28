@@ -14,7 +14,7 @@ use crate::application::services::storage_samples::StorageSampleService;
 use crate::domain::entities::insights::Antipattern;
 use crate::domain::entities::query_events::QueryEvent;
 use crate::domain::entities::query_shapes::QueryShape;
-use crate::domain::error::Result;
+use crate::domain::error::{Error, Result};
 
 /// Bounds for one sync pass, wired from configuration.
 #[derive(Debug, Clone, Copy)]
@@ -177,13 +177,22 @@ impl IngestionUseCase {
             None => None,
         };
 
-        let drafts = self
+        let page = self
             .motherduck_client
             .fetch_query_history(&token, since, self.settings.batch_limit)
             .await?;
+        let drafts = page.drafts;
+        // Rows the fetch dropped because it could not read them. They are
+        // gone from the figures for good, so the count is reported through
+        // the sync state below rather than left to a log line.
+        let unreadable_rows = page.rows_returned.saturating_sub(drafts.len());
 
         let now = Utc::now();
-        let filled_the_batch = drafts.len() >= self.settings.batch_limit as usize;
+        // Judged from what MotherDuck returned, not from what survived the
+        // read. A single unreadable row would otherwise make a full batch
+        // look short, clear the catching-up flag, and send the next pass back
+        // over the overlap window it had just worked through.
+        let filled_the_batch = page.rows_returned >= self.settings.batch_limit as usize;
         // History is read oldest first, so a batch cut short by the limit can
         // end earlier than the watermark it started from. Storing that would
         // send the next fetch further back still, and the one after that
@@ -209,6 +218,8 @@ impl IngestionUseCase {
         // every one to six hours.
         // A connection never read before is always due, so a newly added one
         // fills its storage panel on the first pass rather than an hour later.
+        // This runs before the stall check below for the same independence: a
+        // wedged query watermark must not freeze the storage panel with it.
         let storage_due = state
             .storage_attempted_at
             .is_none_or(|last| now - last >= self.settings.storage_interval);
@@ -224,6 +235,36 @@ impl IngestionUseCase {
             }
         }
 
+        // A catching-up pass starts at the watermark itself, so a full batch
+        // that moves nothing means no later `since` can ever step past this
+        // instant. That takes either rows past the watermark the fetch could
+        // not read, which skipping cannot get around because they fill every
+        // page, or more queries in one millisecond than the batch limit
+        // allows. The two need different action, so they are told apart here
+        // and reported rather than left to stall in silence.
+        if state.catching_up && filled_the_batch && new_watermark == watermark {
+            if unreadable_rows > 0 {
+                return Err(Error::External(anyhow::anyhow!(
+                    "{unreadable_rows} query history rows past the watermark could not be read, \
+                     so ingestion cannot move past them"
+                )));
+            }
+            return Err(Error::External(anyhow::anyhow!(
+                "more than {} queries share one instant, so ingestion cannot move past it; \
+                 raise ingest_batch_limit",
+                self.settings.batch_limit
+            )));
+        }
+
+        // A pass that skipped rows still succeeded, but the figures are
+        // missing those rows for good, so the reader is told through the
+        // error field the health banner reads.
+        let skipped_note = (unreadable_rows > 0).then(|| {
+            format!(
+                "{unreadable_rows} query history rows could not be read and were skipped, \
+                 so the figures are missing them"
+            )
+        });
         self.connection_service
             .update_sync_state(
                 connection_id,
@@ -231,7 +272,7 @@ impl IngestionUseCase {
                     watermark_start_time: new_watermark,
                     last_synced_at: now,
                     last_success_at: Some(now),
-                    last_sync_error: None,
+                    last_sync_error: skipped_note,
                 },
             )
             .await
@@ -382,7 +423,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::application::services::motherduck::MockMotherDuckClient;
+    use crate::application::services::motherduck::{MockMotherDuckClient, QueryHistoryPage};
     use crate::application::services::motherduck_connections::MockMotherDuckConnectionService;
     use crate::application::services::query_events::MockQueryEventService;
     use crate::application::services::query_shapes::MockQueryShapeService;
@@ -494,6 +535,15 @@ mod tests {
         connection
     }
 
+    /// A page holding exactly the drafts given, as if MotherDuck returned no
+    /// rows DuckWatch could not read.
+    fn page(drafts: Vec<QueryEventDraft>) -> QueryHistoryPage {
+        QueryHistoryPage {
+            rows_returned: drafts.len(),
+            drafts,
+        }
+    }
+
     fn draft(start_time: DateTime<Utc>) -> QueryEventDraft {
         QueryEventDraft {
             md_query_id: Uuid::new_v4(),
@@ -547,7 +597,7 @@ mod tests {
         client
             .expect_fetch_query_history()
             .withf(move |_, since, limit| *since == Some(expected_since) && *limit == 1000)
-            .return_once(move |_, _, _| Ok(vec![draft(watermark), draft(newest)]));
+            .return_once(move |_, _, _| Ok(page(vec![draft(watermark), draft(newest)])));
 
         let mut events = MockQueryEventService::new();
         expect_no_backfill(&mut events);
@@ -594,7 +644,7 @@ mod tests {
         client.expect_fetch_storage().returning(|_| Ok(vec![]));
         client
             .expect_fetch_query_history()
-            .return_once(|_, _, _| Ok(vec![]));
+            .return_once(|_, _, _| Ok(page(vec![])));
 
         let mut events = MockQueryEventService::new();
         expect_no_backfill(&mut events);
@@ -692,7 +742,10 @@ mod tests {
         client
             .expect_fetch_query_history()
             .return_once(move |_, _, _| {
-                Ok(vec![draft(older - Duration::minutes(1)), draft(older)])
+                Ok(page(vec![
+                    draft(older - Duration::minutes(1)),
+                    draft(older),
+                ]))
             });
 
         let mut events = MockQueryEventService::new();
@@ -729,14 +782,315 @@ mod tests {
             .expect_fetch_query_history()
             .withf(move |_, since, _| *since == Some(with_overlap))
             .times(1)
-            .returning(move |_, _, _| Ok(vec![draft(watermark), draft(newest)]));
+            .returning(move |_, _, _| Ok(page(vec![draft(watermark), draft(newest)])));
         client
             .expect_fetch_query_history()
             .withf(move |_, since, _| *since == Some(watermark))
             .times(1)
-            .returning(|_, _, _| Ok(vec![]));
+            .returning(|_, _, _| Ok(page(vec![])));
 
         let use_case = repeatable_with(client, connection(Some(watermark)), small_batch_settings());
+        use_case.run_once().await.unwrap();
+        use_case.run_once().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_row_does_not_make_a_full_batch_look_short() {
+        // Fullness decides whether the next pass skips the overlap. Judging
+        // it from the drafts rather than from what MotherDuck returned would
+        // let one dropped row send the poller back over the window it had
+        // just worked through, and keep it there.
+        let watermark = Utc::now();
+        let newest = watermark + Duration::minutes(30);
+
+        let mut client = MockMotherDuckClient::new();
+        client.expect_fetch_storage().returning(|_| Ok(vec![]));
+        let with_overlap = watermark - Duration::minutes(15);
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(with_overlap))
+            .times(1)
+            .returning(move |_, _, _| {
+                // Two rows came back against a limit of two, but one of them
+                // could not be read.
+                Ok(QueryHistoryPage {
+                    drafts: vec![draft(newest)],
+                    rows_returned: 2,
+                })
+            });
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark))
+            .times(1)
+            .returning(|_, _, _| Ok(page(vec![])));
+
+        let use_case = repeatable_with(client, connection(Some(watermark)), small_batch_settings());
+        use_case.run_once().await.unwrap();
+        use_case.run_once().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_full_batch_of_nothing_but_ties_is_reported_rather_than_stalling() {
+        // Every row shares the watermark's instant, so no later starting
+        // point can step past them. Left silent this reads as a healthy
+        // connection that simply never moves again.
+        let watermark = Utc::now();
+        let connection = connection(Some(watermark));
+
+        let mut connections = MockMotherDuckConnectionService::new();
+        connections
+            .expect_find_enabled()
+            .returning(move || Ok(vec![connection.clone()]));
+        connections
+            .expect_get_token()
+            .returning(|_| MotherDuckToken::new("tok"));
+        connections
+            .expect_update_sync_state()
+            .withf(|_, state| state.last_sync_error.is_none())
+            .times(1)
+            .returning(|_, _| Ok(()));
+        connections
+            .expect_update_sync_state()
+            .withf(|_, state| {
+                state
+                    .last_sync_error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("share one instant"))
+            })
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let mut client = MockMotherDuckClient::new();
+        client.expect_fetch_storage().returning(|_| Ok(vec![]));
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark - Duration::minutes(15)))
+            .times(1)
+            .returning(move |_, _, _| {
+                Ok(page(vec![
+                    draft(watermark),
+                    draft(watermark + Duration::minutes(1)),
+                ]))
+            });
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark))
+            .times(1)
+            .returning(move |_, _, _| Ok(page(vec![draft(watermark), draft(watermark)])));
+
+        let mut events = MockQueryEventService::new();
+        expect_no_backfill(&mut events);
+        events.expect_upsert_batch().returning(|_| Ok(0));
+
+        let use_case = IngestionUseCase::new(
+            Box::new(connections),
+            Box::new(client),
+            Box::new(events),
+            Box::new(storage_stub()),
+            Box::new(shape_stub()),
+            Box::new(analyzer_stub()),
+            small_batch_settings(),
+        );
+        use_case.run_once().await.unwrap();
+        use_case.run_once().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_stall_behind_unreadable_rows_names_them_rather_than_ties() {
+        // Every readable row sits at the watermark and the rows past it fail
+        // to read on every pass, so skipping cannot get around them. Calling
+        // that a tie problem would send the operator to raise the batch
+        // limit, which cannot help.
+        let watermark = Utc::now();
+        let connection = connection(Some(watermark));
+
+        let mut connections = MockMotherDuckConnectionService::new();
+        connections
+            .expect_find_enabled()
+            .returning(move || Ok(vec![connection.clone()]));
+        connections
+            .expect_get_token()
+            .returning(|_| MotherDuckToken::new("tok"));
+        connections
+            .expect_update_sync_state()
+            .withf(|_, state| state.last_sync_error.is_none())
+            .times(1)
+            .returning(|_, _| Ok(()));
+        connections
+            .expect_update_sync_state()
+            .withf(|_, state| {
+                state
+                    .last_sync_error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("could not be read"))
+            })
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let mut client = MockMotherDuckClient::new();
+        client.expect_fetch_storage().returning(|_| Ok(vec![]));
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark - Duration::minutes(15)))
+            .times(1)
+            .returning(move |_, _, _| {
+                Ok(page(vec![
+                    draft(watermark),
+                    draft(watermark + Duration::minutes(1)),
+                ]))
+            });
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark))
+            .times(1)
+            .returning(move |_, _, _| {
+                // A full page, but the row past the watermark was dropped as
+                // unreadable, so the watermark cannot move.
+                Ok(QueryHistoryPage {
+                    drafts: vec![draft(watermark)],
+                    rows_returned: 2,
+                })
+            });
+
+        let mut events = MockQueryEventService::new();
+        expect_no_backfill(&mut events);
+        events.expect_upsert_batch().returning(|_| Ok(0));
+
+        let use_case = IngestionUseCase::new(
+            Box::new(connections),
+            Box::new(client),
+            Box::new(events),
+            Box::new(storage_stub()),
+            Box::new(shape_stub()),
+            Box::new(analyzer_stub()),
+            small_batch_settings(),
+        );
+        use_case.run_once().await.unwrap();
+        use_case.run_once().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn skipped_rows_are_reported_in_the_sync_state() {
+        // The skipped rows are missing from the figures for good, so a pass
+        // that dropped some succeeds while saying so where the health banner
+        // can read it.
+        let watermark = Utc::now();
+        let connection = connection(Some(watermark));
+        let newest = watermark + Duration::minutes(10);
+
+        let mut connections = MockMotherDuckConnectionService::new();
+        connections
+            .expect_find_enabled()
+            .returning(move || Ok(vec![connection.clone()]));
+        connections
+            .expect_get_token()
+            .returning(|_| MotherDuckToken::new("tok"));
+        connections
+            .expect_update_sync_state()
+            .withf(move |_, state| {
+                state.watermark_start_time == Some(newest)
+                    && state.last_success_at.is_some()
+                    && state
+                        .last_sync_error
+                        .as_deref()
+                        .is_some_and(|error| error.contains("skipped"))
+            })
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let mut client = MockMotherDuckClient::new();
+        client.expect_fetch_storage().returning(|_| Ok(vec![]));
+        client
+            .expect_fetch_query_history()
+            .return_once(move |_, _, _| {
+                Ok(QueryHistoryPage {
+                    drafts: vec![draft(newest)],
+                    rows_returned: 2,
+                })
+            });
+
+        let mut events = MockQueryEventService::new();
+        expect_no_backfill(&mut events);
+        events.expect_upsert_batch().returning(|_| Ok(0));
+
+        let use_case = IngestionUseCase::new(
+            Box::new(connections),
+            Box::new(client),
+            Box::new(events),
+            Box::new(storage_stub()),
+            Box::new(shape_stub()),
+            Box::new(analyzer_stub()),
+            settings(),
+        );
+        use_case.run_once().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_stalled_watermark_does_not_stop_the_storage_read() {
+        // The stall guard reports through the sync error, but storage reads
+        // fail on their own schedule and must keep working while the query
+        // watermark is wedged.
+        let watermark = Utc::now();
+        let connection = connection(Some(watermark));
+
+        let mut connections = MockMotherDuckConnectionService::new();
+        connections
+            .expect_find_enabled()
+            .returning(move || Ok(vec![connection.clone()]));
+        connections
+            .expect_get_token()
+            .returning(|_| MotherDuckToken::new("tok"));
+        connections
+            .expect_update_sync_state()
+            .returning(|_, _| Ok(()));
+
+        let mut client = MockMotherDuckClient::new();
+        // Once per pass: storage is due on both, and the second pass reports
+        // the stall, so the second read is the assertion.
+        client
+            .expect_fetch_storage()
+            .times(2)
+            .returning(|_| Ok(vec![]));
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark - Duration::minutes(15)))
+            .times(1)
+            .returning(move |_, _, _| {
+                Ok(page(vec![
+                    draft(watermark),
+                    draft(watermark + Duration::minutes(1)),
+                ]))
+            });
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(watermark))
+            .times(1)
+            .returning(move |_, _, _| Ok(page(vec![draft(watermark), draft(watermark)])));
+
+        let mut events = MockQueryEventService::new();
+        expect_no_backfill(&mut events);
+        events.expect_upsert_batch().returning(|_| Ok(0));
+
+        let mut storage = MockStorageSampleService::new();
+        storage
+            .expect_upsert_batch()
+            .returning(|batch| Ok(batch.len() as u64));
+
+        let use_case = IngestionUseCase::new(
+            Box::new(connections),
+            Box::new(client),
+            Box::new(events),
+            Box::new(storage),
+            Box::new(shape_stub()),
+            Box::new(analyzer_stub()),
+            IngestionSettings {
+                batch_limit: 2,
+                // Storage due on both passes, so the stalled second pass has
+                // to attempt it too for the expectation above to hold.
+                storage_interval: Duration::zero(),
+                ..settings()
+            },
+        );
         use_case.run_once().await.unwrap();
         use_case.run_once().await.unwrap();
     }
@@ -748,7 +1102,7 @@ mod tests {
         let mut client = MockMotherDuckClient::new();
         client
             .expect_fetch_query_history()
-            .returning(|_, _, _| Ok(vec![]));
+            .returning(|_, _, _| Ok(page(vec![])));
         client
             .expect_fetch_storage()
             .times(1)
@@ -767,7 +1121,7 @@ mod tests {
         let mut client = MockMotherDuckClient::new();
         client
             .expect_fetch_query_history()
-            .returning(|_, _, _| Ok(vec![]));
+            .returning(|_, _, _| Ok(page(vec![])));
         client
             .expect_fetch_storage()
             .times(1)
@@ -798,7 +1152,7 @@ mod tests {
         client
             .expect_fetch_query_history()
             .withf(|_, since, _| since.is_none())
-            .return_once(|_, _, _| Ok(vec![]));
+            .return_once(|_, _, _| Ok(page(vec![])));
 
         let mut events = MockQueryEventService::new();
         expect_no_backfill(&mut events);
@@ -844,7 +1198,7 @@ mod tests {
             second.query_text = "select a from t where d = '2026-07-01'".into();
             let mut other = draft(Utc::now());
             other.query_text = "select a from other".into();
-            Ok(vec![first, second, other])
+            Ok(page(vec![first, second, other]))
         });
 
         let mut events = MockQueryEventService::new();
@@ -905,7 +1259,7 @@ mod tests {
         client.expect_fetch_storage().returning(|_| Ok(vec![]));
         client
             .expect_fetch_query_history()
-            .return_once(|_, _, _| Ok(vec![]));
+            .return_once(|_, _, _| Ok(page(vec![])));
 
         let mut events = MockQueryEventService::new();
         expect_no_backfill(&mut events);
@@ -973,7 +1327,7 @@ mod tests {
         client.expect_fetch_storage().returning(|_| Ok(vec![]));
         client
             .expect_fetch_query_history()
-            .return_once(|_, _, _| Ok(vec![]));
+            .return_once(|_, _, _| Ok(page(vec![])));
 
         let pending_id = Uuid::new_v4();
         let mut events = MockQueryEventService::new();
@@ -1032,7 +1386,7 @@ mod tests {
         let mut client = MockMotherDuckClient::new();
         client
             .expect_fetch_query_history()
-            .return_once(|_, _, _| Ok(vec![draft(Utc::now())]));
+            .return_once(|_, _, _| Ok(page(vec![draft(Utc::now())])));
         client
             .expect_fetch_storage()
             .return_once(|_| Err(Error::validation("needs the storage permission")));
@@ -1080,7 +1434,7 @@ mod tests {
         let mut client = MockMotherDuckClient::new();
         client
             .expect_fetch_query_history()
-            .return_once(|_, _, _| Ok(vec![]));
+            .return_once(|_, _, _| Ok(page(vec![])));
         client.expect_fetch_storage().return_once(|_| {
             Ok(vec![
                 crate::domain::entities::storage_samples::StorageSampleDraft {
@@ -1161,7 +1515,7 @@ mod tests {
         client.expect_fetch_storage().returning(|_| Ok(vec![]));
         client
             .expect_fetch_query_history()
-            .return_once(|_, _, _| Ok(vec![]));
+            .return_once(|_, _, _| Ok(page(vec![])));
 
         let mut events = MockQueryEventService::new();
         expect_no_backfill(&mut events);

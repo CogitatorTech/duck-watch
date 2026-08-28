@@ -77,17 +77,37 @@ export const insightEvidence = (insight: Insight): string => {
  */
 export const STATEMENT_LIMIT = 2000;
 
+/**
+ * Whether a statement from a listing was cut. The backend keeps
+ * `STATEMENT_LIMIT` characters and appends an ellipsis, so length settles it
+ * for listing text, and for listing text only. A statement read in full can
+ * be longer than the limit and still be whole.
+ */
 export const isStatementCut = (sql: string): boolean => sql.length > STATEMENT_LIMIT;
 
+/** A statement together with whether it is the whole one. */
+export type Statement = {
+	sql: string;
+	cut: boolean;
+};
+
+/** A statement as a listing carries it, which the backend may have cut. */
+export const listedStatement = (sql: string): Statement => ({ sql, cut: isStatementCut(sql) });
+
+/** A statement read in full, which is whole however long it runs. */
+export const wholeStatement = (sql: string): Statement => ({ sql, cut: false });
+
 /**
- * The statement to put on the clipboard. A cut statement says so in a SQL
- * comment, because handing someone an incomplete query they believe is whole
- * is worse than handing them nothing.
+ * The statement to put on the clipboard. A cut one says so in a SQL comment,
+ * because handing someone an incomplete query they believe is whole is worse
+ * than handing them nothing. Whether it was cut is carried with it rather
+ * than guessed from its length, or a long statement read in full would be
+ * labeled incomplete.
  */
-export const statementForCopy = (sql: string): string =>
-	isStatementCut(sql)
-		? `${sql}\n-- This query was cut at ${STATEMENT_LIMIT} characters and is not complete.`
-		: sql;
+export const statementForCopy = (statement: Statement): string =>
+	statement.cut
+		? `${statement.sql}\n-- This query was cut at ${STATEMENT_LIMIT} characters and is not complete.`
+		: statement.sql;
 
 /**
  * Every finding raised against one query shape. The backend reports findings
@@ -156,7 +176,7 @@ export const shapeEvidence = (shape: ShapeFindings): string => {
  * caller supplies the statement, since the whole one is read separately from
  * the listing.
  */
-export const findingAsText = (shape: ShapeFindings, cost: string, statement: string): string => {
+export const findingAsText = (shape: ShapeFindings, cost: string, statement: Statement): string => {
 	const share = `${(shape.cost_share * 100).toFixed(1)}% of the period`;
 	const lines = [
 		`Query shape: ${shape.fingerprint}`,
