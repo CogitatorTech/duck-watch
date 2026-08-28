@@ -148,7 +148,7 @@ fn parsed_antipatterns(ast: &Value) -> Vec<Antipattern> {
 
 /// The same flags read off normalized text, for the statements DuckDB will
 /// not serialize. Only the ones that can be spotted reliably without a parse
-/// are attempted; the rest are simply not reported for these statements.
+/// are attempted; the rest are not reported for these statements.
 fn text_antipatterns(normalized: &str) -> Vec<Antipattern> {
     let mut found = Vec::new();
 

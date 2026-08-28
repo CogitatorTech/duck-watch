@@ -833,7 +833,7 @@ mod tests {
     async fn a_full_batch_of_nothing_but_ties_is_reported_rather_than_stalling() {
         // Every row shares the watermark's instant, so no later starting
         // point can step past them. Left silent this reads as a healthy
-        // connection that simply never moves again.
+        // connection that never moves again.
         let watermark = Utc::now();
         let connection = connection(Some(watermark));
 

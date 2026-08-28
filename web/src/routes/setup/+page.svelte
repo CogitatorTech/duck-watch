@@ -22,7 +22,7 @@
 			await goto(resolve('/connections'));
 		} catch (error) {
 			// A conflict means somebody already claimed this instance, which
-			// is a different problem from a request that simply failed.
+			// is a different problem from a request that failed.
 			errorMessage =
 				error instanceof ApiError && error.status === 409
 					? 'This DuckWatch already has an account. Sign in instead.'

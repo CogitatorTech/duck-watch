@@ -40,7 +40,9 @@ Quick examples:
 
 - Write in simple, plain English. Use short sentences and everyday words.
 - Use Oxford commas in inline lists: "a, b, and c" not "a, b, c".
-- Do not use em dashes. Restructure the sentence, or use a colon or semicolon instead.
+- Do not use em dashes. Restructure the sentence or use a semicolon instead.
+- Avoid colons in the middle of sentences, in new prose. A colon that introduces a code block or a list is fine;
+  existing text is reworded when it is touched anyway, not in a sweep.
 - Avoid colorful adjectives and adverbs. Write "adjacency query" not "blazing adjacency query".
 - Prefer noun phrases for checklist items over imperative verbs. Write "temp directory teardown" not "tear down the temp directory".
 - Headings in Markdown files must be in title case: "Build from Source" not "Build from source". Minor words (a, an, the, and, but, or, for, in, on,
@@ -52,7 +54,7 @@ Quick examples:
 - Start each sentence with a capital letter, capitalize proper nouns (Rust, PostgreSQL, SvelteKit, TypeScript), and leave common nouns lowercase
   in the middle of a sentence.
 - Write correct and complete sentences.
-- Avoid made-up words, abbreviations, and colons in the middle of sentences.
+- Avoid made-up words and abbreviations.
 - Use participial phrases scarcely.
 
 ## Architecture Constraints
@@ -202,6 +204,19 @@ These have each caused a wrong assumption at least once, and each is verified ag
 - Every field in `ListOptions` must be serialized by `params` in `web/src/lib/services/api/dashboard.ts`. A field the
   type declares and the builder skips leaves a filter that changes nothing on screen while the row still highlights,
   which is how the shape filter went unnoticed. A test in `web/test/dashboard-api.test.ts` covers the shape field.
+
+## Test-driven Development
+
+Fix bugs and add behavior red-green. Write a failing test first, watch it fail, then write the code that makes it
+pass. The failing run is the point, because it proves the test can catch the bug it exists to prevent. A test written
+after the fix has never seen the old code fail and may pass for the wrong reason.
+
+- Name each test as a sentence about behavior, in the style of the existing suites. Write
+  `a_pulse_group_bills_at_least_one_second_per_query`, not `test_pulse_floor`.
+- One regression test per bug, asserting the behavior that was wrong, not the implementation that fixed it.
+- Refactoring that changes no behavior needs no new test; the existing suite staying green is the check.
+- When a failing test cannot come first, such as a pure layout change in the frontend, say so in the PR description
+  rather than skipping the step silently.
 
 ## Required Validation
 

@@ -71,7 +71,7 @@
 		<form class="flex flex-col gap-2 sm:flex-row" onsubmit={submit}>
 			<Input
 				bind:value={name}
-				placeholder="Name (e.g. production)"
+				placeholder="Name (such as production)"
 				required
 				maxlength={128}
 			/>

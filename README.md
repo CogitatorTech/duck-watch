@@ -37,13 +37,13 @@ DuckWatch shows you what your MotherDuck account is doing and what it is costing
 ### Getting Started
 
 > [!IMPORTANT]
-> To run and use DuckWatch described here, you need to have Docker installed on your machine.
+> To run and use DuckWatch as described here, you need to have Docker installed on your machine.
 > Additionally, you need a MotherDuck account on the Business or Enterprise plan, and a read-only service token
 > created under a role with the view query history permission.
 > The Admin and Builder preset roles include that permission by default.
 > The Lite plan does not include query history, so DuckWatch cannot read anything on it.
 
-##### 1. Create a `docker-compose.yml` file
+##### 1. Create a `docker-compose.yml` File
 
 Save the text below as `docker-compose.yml` in an empty directory.
 
