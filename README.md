@@ -17,16 +17,16 @@ DuckWatch shows you what your MotherDuck account is doing and what it is costing
 <br>
 
 <div align="center">
-  <img alt="Stats" src="docs/assets/screenshots/1.png" width="80%">
+  <img alt="Stats" src="docs/assets/screenshots/2.png" width="80%">
 </div>
 
 <details>
 <summary>Show more screenshots</summary>
 
 <div align="center">
-  <img alt="Shot 1" src="docs/assets/screenshots/2.png" width="80%">
-  <img alt="Shot 2" src="docs/assets/screenshots/3.png" width="80%">
-  <img alt="Shot 3" src="docs/assets/screenshots/4.png" width="80%">
+  <img alt="Shot 1" src="docs/assets/screenshots/1.png" width="80%">
+  <img alt="Shot 2" src="docs/assets/screenshots/4.png" width="80%">
+  <img alt="Shot 3" src="docs/assets/screenshots/3.png" width="80%">
   <img alt="Shot 4" src="docs/assets/screenshots/5.png" width="80%">
 </div>
 
