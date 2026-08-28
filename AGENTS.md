@@ -31,11 +31,6 @@ stale rather than deliberate.
 - Money and time arithmetic belongs in `domain/`, never in SQL or in a component. The store counts and sums; the
   application prices.
 
-Quick examples:
-
-- Good: add a new service trait in `application/services/` and implement it in `infrastructure/`.
-- Bad: call `sqlx` directly from a use case in `application/use_cases/`.
-
 ## Writing Style
 
 - Write in simple, plain English. Use short sentences and everyday words.
@@ -59,12 +54,8 @@ Quick examples:
 
 ## Architecture Constraints
 
-- The Rust toolchain is pinned to 1.97.1 (edition 2024) by `rust-toolchain.toml`; do not add version suffixes to cargo
-  commands.
-- The frontend targets the active Node.js LTS line, which is 24. TypeScript stays on the 5.x line because
-  `svelte-check` and `typescript-eslint` both reject TypeScript 7.
-- The workspace denies `clippy::unwrap_used` and `clippy::expect_used` in production code. Test code is exempt through
-  the `cfg_attr` at the top of `backend/src/main.rs`.
+- Do not add version suffixes to cargo commands; `rust-toolchain.toml` pins the toolchain.
+- TypeScript stays on the 5.x line because `svelte-check` and `typescript-eslint` both reject TypeScript 7.
 - Queries use the runtime `sqlx::query_as` API, not the `sqlx::query!` macros, so the project builds without a database
   connection and carries no `.sqlx` metadata directory. Keep it that way unless the whole project moves to the macros.
 - Rows are mapped through a private `*Row` type in each `infrastructure/pg/` module, so no `sqlx` derive appears on a
@@ -103,13 +94,13 @@ Quick examples:
 - `last_synced_at` records the last attempt, whether or not it worked; `last_success_at` records the last success. Both
   are needed, or a connection failing for days is indistinguishable from one that just succeeded. A failed pass passes
   `None` for the success time, and the update coalesces so the stored one survives.
+- A pass that worked but skipped rows it could not read records the note in `last_ingest_warning`, never in
+  `last_sync_error`, because an error reads as a broken connection while syncing goes on working. The update coalesces
+  so a clean pass leaves the stored warning alone, since the skipped rows stay missing for good.
 - Secrets are encrypted at rest with the key in `TOKEN_ENCRYPTION_KEY`. A MotherDuck token must never be serialized,
   logged, or included in an error message; `MotherDuckToken` redacts its own `Debug` output and the client scrubs the
   token out of driver errors.
-- Configuration comes from environment variables parsed in `backend/src/config.rs`; `make run-backend` copies
-  `backend/.env.example` to `backend/.env` when missing, and `make run-web` does the same for `web/.env.example`
-  (`VITE_API_URL`, which only the development server needs; see the same-origin rule under Frontend Conventions).
-- Never commit real secrets. The `.env` files are gitignored, and example values belong in the `.env.example` files.
+- Never commit real secrets; example values belong in the `.env.example` files.
 
 ## Product Facts Worth Knowing
 
@@ -260,15 +251,14 @@ Use this review format:
 
 - Prefer targeted edits over broad mechanical rewrites.
 - If you detect contradictory repository conventions, follow existing code and update docs accordingly.
-- The `tmp/` directory is gitignored scratch space. Do not read from it or write to it as part of a change, unless the
-  user asks for it directly.
+- Do not read from or write to the `tmp/` scratch directory as part of a change, unless the user asks for it directly.
 - Verify claims about MotherDuck against its documentation rather than from memory. Its behavior has already
   contradicted reasonable assumptions more than once.
 
 ## Commit and PR Hygiene
 
 - Keep commits scoped to one logical change.
-- Follow the existing conventional commit style: `feat(dashboard): ...`, `fix(ingestion): ...`, `docs(readme): ...`.
+- Follow the conventional commit style already in the git history.
 - PR descriptions should include:
     1. behavioral change summary,
     2. tests added/updated,

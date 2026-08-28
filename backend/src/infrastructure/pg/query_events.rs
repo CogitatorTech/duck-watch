@@ -155,14 +155,17 @@ const BILLED_MS: &str = "coalesce(e.execution_time_ms, e.total_elapsed_time_ms)"
 /// Written once so the tiles, the chart, the attribution table, and the
 /// shapes list cannot drift apart. A run with no duration reported at all
 /// counts as under the floor rather than dropping out of both figures, or it
-/// would price at nothing where it used to bill the minimum.
+/// would price at nothing where it used to bill the minimum. Each run is
+/// clamped to zero before it is summed, because nothing on the ingestion
+/// path rejects a negative interval and a negative run must not subtract
+/// from the time the other runs billed.
 fn group_runtime_columns() -> String {
     format!(
-        "coalesce(sum({BILLED_MS}), 0)::bigint as total_ms,
+        "coalesce(sum(greatest({BILLED_MS}, 0)), 0)::bigint as total_ms,
                     count(*) filter (where coalesce({BILLED_MS}, 0) < {PULSE_MINIMUM_MS})::bigint
                         as sub_second_count,
                     coalesce(
-                        sum({BILLED_MS}) filter (
+                        sum(greatest({BILLED_MS}, 0)) filter (
                             where coalesce({BILLED_MS}, 0) < {PULSE_MINIMUM_MS}
                         ), 0
                     )::bigint as sub_second_ms"
@@ -904,6 +907,32 @@ mod integration_tests {
         // tier can raise that one to a second on its own.
         assert_eq!(cells[0].runtime.sub_second_count, 1);
         assert_eq!(cells[0].runtime.sub_second_ms, 200);
+    }
+
+    #[sqlx::test]
+    async fn a_negative_duration_does_not_offset_what_other_runs_billed(pool: Pool<Postgres>) {
+        // Nothing on the ingestion path rejects a negative interval, which
+        // clock skew can produce. Summed as it is, it would subtract from the
+        // time other runs billed and undercharge the group.
+        let connection_id = seed_connection(&pool).await;
+        let service = PgQueryEventService::new(pool);
+
+        let mut skewed = event(connection_id, 100, 5, None);
+        skewed.execution_time_ms = Some(-500);
+        skewed.total_elapsed_time_ms = Some(-500);
+        let long_run = event(connection_id, 5000, 5, None);
+
+        service.upsert_batch(vec![skewed, long_run]).await.unwrap();
+
+        let cells = service
+            .attribution_cells(connection_id, day_filter(), AttributionKey::InstanceType)
+            .await
+            .unwrap();
+
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].runtime.total_ms, 5000);
+        assert_eq!(cells[0].runtime.sub_second_count, 1);
+        assert_eq!(cells[0].runtime.sub_second_ms, 0);
     }
 
     #[sqlx::test]

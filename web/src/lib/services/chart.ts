@@ -89,12 +89,15 @@ export const layoutChart = (
 };
 
 /**
- * The run time a set of attribution rows accounts for between them. It lives
- * here rather than in the component, because arithmetic over durations does
- * not belong in markup. The strict reading of that rule would have the store
- * supply this total, which would mean a change to the response shape.
+ * The compute time a set of attribution rows accounts for between them. The
+ * rows carry billed time, which is execution time with elapsed standing in
+ * where execution is missing, so the caption naming this figure must say
+ * compute rather than run time. It lives here rather than in the component,
+ * because arithmetic over durations does not belong in markup. The strict
+ * reading of that rule would have the store supply this total, which would
+ * mean a change to the response shape.
  */
-export const totalRunTimeMs = (rows: { total_ms: number }[]): number =>
+export const totalComputeMs = (rows: { total_ms: number }[]): number =>
 	rows.reduce((sum, row) => sum + row.total_ms, 0);
 
 /** Formats a millisecond duration for display, switching units as it grows. */

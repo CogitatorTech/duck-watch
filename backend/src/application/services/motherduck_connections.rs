@@ -14,6 +14,10 @@ pub struct SyncState {
     /// alone, so a failure does not erase when ingestion last worked.
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_sync_error: Option<String>,
+    /// Set when the pass worked but lost rows for good. `None` leaves the
+    /// stored warning alone, because the rows a past pass skipped stay
+    /// missing however well later passes go.
+    pub ingest_warning: Option<String>,
 }
 
 /// Storage boundary for MotherDuck connections. Org-scoped methods serve the

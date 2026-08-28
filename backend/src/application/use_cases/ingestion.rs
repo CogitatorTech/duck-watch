@@ -142,6 +142,7 @@ impl IngestionUseCase {
                     last_synced_at: Utc::now(),
                     last_success_at: None,
                     last_sync_error: Some(err.to_string()),
+                    ingest_warning: None,
                 };
                 if let Err(err) = self
                     .connection_service
@@ -203,7 +204,6 @@ impl IngestionUseCase {
             .max()
             .map(|newest| watermark.map_or(newest, |mark| mark.max(newest)))
             .or(watermark);
-        self.update_poll_state(connection_id, |state| state.catching_up = filled_the_batch);
         let mut events: Vec<QueryEvent> = drafts
             .into_iter()
             .map(|draft| draft.into_event(connection_id, now))
@@ -211,6 +211,10 @@ impl IngestionUseCase {
 
         self.assign_fingerprints(connection_id, &mut events).await?;
         self.query_event_service.upsert_batch(events).await?;
+        // Recorded only once the batch is stored. A full batch that failed to
+        // store left its rows nowhere, so the next pass has to read the
+        // overlap window again rather than skip it.
+        self.update_poll_state(connection_id, |state| state.catching_up = filled_the_batch);
 
         // Storage needs a wider permission than the query history, so a
         // token without it still gets working query ingestion. It is also
@@ -258,7 +262,8 @@ impl IngestionUseCase {
 
         // A pass that skipped rows still succeeded, but the figures are
         // missing those rows for good, so the reader is told through the
-        // error field the health banner reads.
+        // warning field the health banner reads. The error field would say
+        // syncing is broken, which it is not.
         let skipped_note = (unreadable_rows > 0).then(|| {
             format!(
                 "{unreadable_rows} query history rows could not be read and were skipped, \
@@ -272,7 +277,8 @@ impl IngestionUseCase {
                     watermark_start_time: new_watermark,
                     last_synced_at: now,
                     last_success_at: Some(now),
-                    last_sync_error: skipped_note,
+                    last_sync_error: None,
+                    ingest_warning: skipped_note,
                 },
             )
             .await
@@ -795,6 +801,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_full_batch_that_fails_to_store_does_not_skip_the_overlap() {
+        // The batch that filled the limit was never written, so the rows it
+        // carried exist nowhere but past reads. Starting the next pass at the
+        // watermark would skip the overlap window for good and lose the late
+        // published rows in it.
+        let watermark = Utc::now();
+        let connection = connection(Some(watermark));
+
+        let mut connections = MockMotherDuckConnectionService::new();
+        connections
+            .expect_find_enabled()
+            .returning(move || Ok(vec![connection.clone()]));
+        connections
+            .expect_get_token()
+            .returning(|_| MotherDuckToken::new("tok"));
+        connections
+            .expect_update_sync_state()
+            .returning(|_, _| Ok(()));
+
+        let mut client = MockMotherDuckClient::new();
+        client.expect_fetch_storage().returning(|_| Ok(vec![]));
+        let with_overlap = watermark - Duration::minutes(15);
+        // Both passes must read the overlap window, because the first one
+        // stored nothing.
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(with_overlap))
+            .times(1)
+            .returning(move |_, _, _| {
+                Ok(page(vec![
+                    draft(watermark),
+                    draft(watermark + Duration::minutes(1)),
+                ]))
+            });
+        client
+            .expect_fetch_query_history()
+            .withf(move |_, since, _| *since == Some(with_overlap))
+            .times(1)
+            .returning(|_, _, _| Ok(page(vec![])));
+
+        let mut events = MockQueryEventService::new();
+        expect_no_backfill(&mut events);
+        events
+            .expect_upsert_batch()
+            .times(1)
+            .returning(|_| Err(Error::External(anyhow::anyhow!("connection reset"))));
+        events.expect_upsert_batch().times(1).returning(|_| Ok(0));
+
+        let use_case = IngestionUseCase::new(
+            Box::new(connections),
+            Box::new(client),
+            Box::new(events),
+            Box::new(storage_stub()),
+            Box::new(shape_stub()),
+            Box::new(analyzer_stub()),
+            small_batch_settings(),
+        );
+        use_case.run_once().await.unwrap();
+        use_case.run_once().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn an_unreadable_row_does_not_make_a_full_batch_look_short() {
         // Fullness decides whether the next pass skips the overlap. Judging
         // it from the drafts rather than from what MotherDuck returned would
@@ -970,10 +1038,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skipped_rows_are_reported_in_the_sync_state() {
+    async fn skipped_rows_are_reported_as_a_warning_rather_than_a_failure() {
         // The skipped rows are missing from the figures for good, so a pass
         // that dropped some succeeds while saying so where the health banner
-        // can read it.
+        // can read it. Reporting them through the error field instead would
+        // make a working connection read as a failing one.
         let watermark = Utc::now();
         let connection = connection(Some(watermark));
         let newest = watermark + Duration::minutes(10);
@@ -990,10 +1059,11 @@ mod tests {
             .withf(move |_, state| {
                 state.watermark_start_time == Some(newest)
                     && state.last_success_at.is_some()
+                    && state.last_sync_error.is_none()
                     && state
-                        .last_sync_error
+                        .ingest_warning
                         .as_deref()
-                        .is_some_and(|error| error.contains("skipped"))
+                        .is_some_and(|warning| warning.contains("skipped"))
             })
             .times(1)
             .returning(|_, _| Ok(()));

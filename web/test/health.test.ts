@@ -12,6 +12,7 @@ const status = (health: IngestionHealth, overrides: Partial<ConnectionStatus> = 
 		last_synced_at: '2026-08-23T10:00:00Z',
 		last_success_at: '2026-08-23T10:00:00Z',
 		last_sync_error: null,
+		last_ingest_warning: null,
 		created_at: '2026-08-01T00:00:00Z',
 		updated_at: '2026-08-23T10:00:00Z',
 		health,
@@ -92,6 +93,18 @@ describe('describeHealth', () => {
 		);
 		expect(notice.tone).toBe('neutral');
 		expect(notice.consequence).not.toBe('');
+	});
+
+	it('shows a recorded warning on a healthy connection without calling it a failure', () => {
+		const notice = describeHealth(
+			status('healthy', {
+				last_ingest_warning: '3 query history rows could not be read and were skipped',
+			}),
+		);
+		expect(notice.tone).toBe('warn');
+		expect(notice.label).toBe('Ingesting data');
+		expect(notice.consequence).toContain('missing');
+		expect(notice.error).toContain('could not be read');
 	});
 
 	it('explains that a disabled connection stops receiving data', () => {
