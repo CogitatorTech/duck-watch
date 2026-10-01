@@ -4,7 +4,7 @@ WEB_DIR := web
 COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 RUST_BACKTRACE := 1
 
-# Integration tests and manual migrations need this to match the `db` service in docker-compose.yaml.
+# Integration tests and manual migrations need this to match the `db` service in compose.yml.
 DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 export DATABASE_URL
 export RUST_BACKTRACE
@@ -132,7 +132,7 @@ start: setup ## Run DuckWatch with Docker, on http://localhost:3000
 
 .PHONY: start-dev
 start-dev: setup ## Run DuckWatch, building both images from this working tree
-	@$(COMPOSE) -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+	@$(COMPOSE) -f compose.yml -f compose.dev.yml up -d --build
 	@echo ""
 	@echo "DuckWatch is starting on http://localhost:3000"
 	@echo "A first build takes about twenty minutes, because the duckdb crate"
