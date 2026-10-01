@@ -49,9 +49,9 @@ DuckWatch shows you what your MotherDuck account is doing and what it is costing
 > The Admin and Builder preset roles include that permission by default.
 > The Lite plan does not include query history, so DuckWatch cannot read anything on it.
 
-##### 1. Create a `docker-compose.yml` File
+##### 1. Create a `compose.yml` File
 
-Save the text below as `docker-compose.yml` in an empty directory.
+Save the text below as `compose.yml` in an empty directory.
 
 ```yaml
 services:
@@ -92,7 +92,7 @@ volumes:
 
 ##### 2. Encryption Key 
 
-Generate and write an encryption key into a `.env` file beside `docker-compose.yml`.
+Generate and write an encryption key into a `.env` file beside `compose.yml`.
 
 ```sh
 printf 'TOKEN_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" > .env
@@ -100,7 +100,7 @@ printf 'TOKEN_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" > .env
 
 ##### 3. Starting DuckWatch
 
-Run `docker compose up -d` in the directory where `docker-compose.yml` is, and open http://localhost:3000 in your browser.
+Run `docker compose up -d` in the directory where `compose.yml` is, and open http://localhost:3000 in your browser.
 
 #### Managing DuckWatch Containers
 

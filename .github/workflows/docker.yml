@@ -8,7 +8,7 @@ on:
     paths:
       - 'backend/**'
       - 'web/**'
-      - 'docker-compose.yaml'
+      - 'compose.yml'
       - '.github/workflows/docker.yml'
   push:
     tags:
