@@ -1,7 +1,7 @@
 # Builds both images from the working tree instead of pulling the published ones.
 # Use it with:
 #
-#   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d --build
+#   docker compose -f compose.yml -f compose.dev.yml up -d --build
 #
 # or run `make start-dev`, which does the same thing.
 services:
