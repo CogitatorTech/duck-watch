@@ -1,6 +1,6 @@
+use argon2::Argon2;
 use argon2::password_hash::phc::PasswordHash as ParsedHash;
 use argon2::password_hash::{PasswordHasher as _, PasswordVerifier};
-use argon2::Argon2;
 
 use crate::application::services::password::PasswordHasher;
 use crate::domain::entities::users::PasswordHash;
