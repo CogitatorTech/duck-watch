@@ -90,7 +90,7 @@ volumes:
     duckwatch-db:
 ```
 
-##### 2. Encryption Key 
+##### 2. Encryption Key
 
 Generate and write an encryption key into a `.env` file beside `compose.yml`.
 
