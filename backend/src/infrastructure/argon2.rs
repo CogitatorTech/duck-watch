@@ -1,5 +1,6 @@
-use argon2::password_hash::{PasswordHash as ParsedHash, PasswordVerifier, SaltString};
-use argon2::{Argon2, PasswordHasher as _};
+use argon2::password_hash::phc::PasswordHash as ParsedHash;
+use argon2::password_hash::{PasswordHasher as _, PasswordVerifier};
+use argon2::Argon2;
 
 use crate::application::services::password::PasswordHasher;
 use crate::domain::entities::users::PasswordHash;
@@ -11,11 +12,8 @@ pub struct Argon2PasswordHasher;
 
 impl PasswordHasher for Argon2PasswordHasher {
     fn hash(&self, plain: &str) -> Result<PasswordHash> {
-        let salt_bytes: [u8; 16] = rand::random();
-        let salt = SaltString::encode_b64(&salt_bytes)
-            .map_err(|err| Error::External(anyhow::anyhow!("salt encoding failed: {err}")))?;
         let hash = Argon2::default()
-            .hash_password(plain.as_bytes(), &salt)
+            .hash_password(plain.as_bytes())
             .map_err(|err| Error::External(anyhow::anyhow!("password hashing failed: {err}")))?;
         Ok(PasswordHash::new(hash.to_string()))
     }
